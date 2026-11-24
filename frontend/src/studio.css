@@ -33,9 +33,12 @@ h3 { font-size: 14px; }
   background: #161920;
   border-bottom: 1px solid #2b303a;
 }
-.topbar-sync { display: flex; align-items: center; gap: 10px; text-align: right; }
+.topbar-sync { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .topbar-sync button { white-space: nowrap; }
-#sync-input-hint { max-width: 190px; color: var(--muted); font-size: 12px; line-height: 1.3; }
+.sync-header-status { max-width: 410px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.sync-header-error { color: #ffb3ae; }
+.job-state { display: flex; align-items: center; gap: 8px; }
+.job-state progress { flex: none; width: 82px; height: 8px; accent-color: var(--accent); }
 .brand { display: flex; align-items: center; gap: 11px; font-size: 16px; font-weight: 700; white-space: nowrap; }
 .brand-icon {
   display: flex;
@@ -153,7 +156,6 @@ textarea::placeholder { color: #8b95a5; }
 @media (max-width: 790px) {
   main { grid-template-columns: minmax(0, 1fr); padding: 14px 12px; }
   .topbar { padding: 6px 14px; }
-  #sync-input-hint { max-width: 115px; }
   .stage { min-height: 165px; }
   .lines { max-height: 340px; }
 }
@@ -180,11 +182,8 @@ textarea::placeholder { color: #8b95a5; }
 }
 .sync { border-top: 1px solid var(--line); }
 .sync-heading { margin: 0; border: 0; min-height: 64px; }
-.sync-note, .job-state, .candidate-summary { padding: 0 17px 12px; }
-.sync-note, .job-state, .candidate-summary p { color: var(--muted); font-size: 13px; }
-.job-state { display: flex; align-items: center; gap: 8px; }
-.job-state progress { width: 82px; height: 8px; accent-color: var(--accent); }
-.sync .notice { padding: 0 17px 12px; }
+.candidate-summary { padding: 0 17px 12px; }
+.candidate-summary p { color: var(--muted); font-size: 13px; }
 .candidate-summary h4 { margin: 0 0 3px; }
 .candidate-summary button, .candidate-summary p + p { margin-top: 8px; }
 .candidates { border-top: 1px solid var(--line); }
@@ -196,3 +195,10 @@ textarea::placeholder { color: #8b95a5; }
 .candidates ul { margin: 6px 0 0; padding-left: 15px; color: var(--muted); font-size: 12px; }
 .candidates ul li { display: list-item; padding: 0; border: 0; counter-increment: none; }
 .candidates ul li::before { content: none; }
+
+@media (max-width: 540px) {
+  .topbar { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .topbar-sync { display: contents; }
+  .topbar-sync > button { grid-column: 2; grid-row: 1; }
+  .sync-header-status { grid-column: 1 / -1; grid-row: 2; max-width: none; }
+}

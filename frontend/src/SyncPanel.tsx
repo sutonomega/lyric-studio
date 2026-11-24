@@ -159,32 +159,31 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   const stale = startedRevision !== revision;
   const preparing = starting && !activeId;
   const cues = preparing ? undefined : job?.cues;
-  const missingInput = config?.available && (!media || !hasLines);
+  const inputHint = config?.available
+    ? (!media || !hasLines) && '素材と歌詞を読み込むと開始できます'
+    : config && '同期を有効にするには、起動時にローカルモデルを指定してください。';
+  const error = notice || (!preparing && job?.error);
   return <section className="sync" aria-labelledby="sync-title">
-    {controls && createPortal(
-      activeId
+    {controls && createPortal(<>
+      {(job || preparing || inputHint || error) && <div className="sync-header-status">
+        {(job || preparing) && <div className="job-state" role="status">
+          {(activeId || preparing) && <progress aria-label="同期の進捗" />}
+          <span>{pollError ? '同期の状態を再取得しています。' : preparing ? '同期を準備中' : job?.stage}</span>
+        </div>}
+        {inputHint && !activeId && <p id="sync-input-hint">{inputHint}</p>}
+        {error && <p className="sync-header-error" role="alert">{error}</p>}
+      </div>}
+      {activeId
         ? <button type="button" onClick={() => void cancel()} disabled={cancelling || job?.state === 'cancelling'}>キャンセル</button>
         : <button type="button" className="primary" disabled={!config?.available || !media || !hasLines || starting || cancelling}
-            aria-describedby={missingInput ? 'sync-input-hint' : undefined}
-            onClick={() => void start()}>{job ? '再実行' : '同期を開始'}</button>,
-      controls,
-    )}
-    {controls && missingInput && !activeId && createPortal(
-      <span id="sync-input-hint">素材と歌詞を読み込むと開始できます</span>,
-      controls,
-    )}
+            aria-describedby={inputHint ? 'sync-input-hint' : undefined}
+            onClick={() => void start()}>{job ? '再実行' : '同期を開始'}</button>}
+    </>, controls)}
     <div className="list-head sync-heading">
       <div><h3 id="sync-title">自動同期</h3>
         {config?.available && <p className="filename">{config.profile === 'refined' ? 'ボーカル分離と補正あり' : '原音を使う同期'} · {config.device?.toUpperCase()}</p>}
       </div>
     </div>
-    {config && !config.available && <p className="sync-note">同期を有効にするには、起動時にローカルモデルを指定してください。</p>}
-    {(job || preparing) && <div className="job-state" role="status">
-      {(activeId || preparing) && <progress aria-label="同期の進捗" />}
-      <span>{preparing ? '同期を準備中' : job?.stage}</span>
-    </div>}
-    {pollError && <p className="sync-note" role="status">同期の状態を再取得しています。</p>}
-    {(notice || (!preparing && job?.error)) && <p className="notice error" role="alert">{notice || job?.error}</p>}
     {job && cues && <>
       <div className="candidate-summary">
         <h4>同期候補</h4>
