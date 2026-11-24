@@ -58,7 +58,7 @@ def distribution(values):
     }
 
 
-def score(sync, reference):
+def score(sync, reference, *, allow_partial=False):
     if sync.get("schema_version") != 1 or reference.get("schema_version") != 2:
         raise ValueError("unsupported JSON schema")
     for key in ("media_sha256", "lyrics_sha256"):
@@ -71,8 +71,10 @@ def score(sync, reference):
     if len(by_id) != len(labels) or len(cue_ids) != len(cues) or set(by_id) - cue_ids:
         raise ValueError("duplicate or unknown line IDs")
     missing = len(cue_ids - by_id.keys())
-    if missing:
+    if missing and not allow_partial:
         raise ValueError(f"{missing} unannotated lines; record time, unsung, or unclear for each line")
+    if not by_id:
+        raise ValueError("no annotated lines")
     duration = reference.get("duration_ms")
     if type(duration) is not int or duration <= 0:
         raise ValueError("invalid reference duration")
@@ -80,6 +82,8 @@ def score(sync, reference):
     counts = Counter()
     starts, ends, rows = [], [], []
     for cue in cues:
+        if cue["id"] not in by_id:
+            continue
         label = by_id[cue["id"]]
         kind = label["status"]
         begin, finish = label["start_ms"], label["end_ms"]
@@ -127,6 +131,7 @@ def score(sync, reference):
     return {"schema_version": 1, "profile": sync["profile"], "asr": sync["asr"],
             "media_sha256": sync["media_sha256"], "lyrics_sha256": sync["lyrics_sha256"],
             "elapsed_s": sync.get("elapsed_s"),
+            "reference_coverage": {"annotated": len(labels), "total": len(cues), "complete": missing == 0},
             "tolerance_ms": TOLERANCE_MS, "counts": {key: counts[key] for key in keys},
             "usable_timed_rate": rate("timed_in_tolerance", "timed"),
             "warning_recall": rate("incorrect_flagged", "incorrect"),
@@ -135,12 +140,44 @@ def score(sync, reference):
             "rows": rows}
 
 
+def compare_profiles(baseline, refined, reference, *, allow_partial=False):
+    if baseline.get("profile") != "baseline" or refined.get("profile") != "refined":
+        raise ValueError("comparison requires baseline followed by refined")
+    if baseline["duration_ms"] != refined["duration_ms"] or [c["id"] for c in baseline["lines"]] != [
+        c["id"] for c in refined["lines"]
+    ]:
+        raise ValueError("media duration or lyric IDs differ between profiles")
+    base_asr, refined_asr = (dict(run["asr"]) for run in (baseline, refined))
+    base_models = base_asr.pop("model_revisions", {})
+    refined_models = refined_asr.pop("model_revisions", {})
+    if base_asr != refined_asr or base_models.get("small") != refined_models.get("small"):
+        raise ValueError("comparison requires the same ASR settings and small model")
+
+    before = score(baseline, reference, allow_partial=allow_partial)
+    after = score(refined, reference, allow_partial=allow_partial)
+    changes = {"newly_in_tolerance": [], "newly_outside_tolerance": [],
+               "unsung_placement_fixed": [], "new_unsung_placement": []}
+    for old, new in zip(before["rows"], after["rows"], strict=True):
+        kind = old["reference_status"]
+        if kind == "unclear" or old["passed"] == new["passed"]:
+            continue
+        if kind == "timed":
+            key = "newly_in_tolerance" if new["passed"] else "newly_outside_tolerance"
+        else:
+            key = "unsung_placement_fixed" if new["passed"] else "new_unsung_placement"
+        changes[key].append(old["id"])
+    return {"schema_version": 1, "reference_coverage": before["reference_coverage"],
+            "tolerance_ms": TOLERANCE_MS, "changes": changes, "baseline": before, "refined": after}
+
+
 def summarize(scores):
     first = scores[0]
     grouping = ("profile", "asr", "tolerance_ms")
     if any(result.get("schema_version") != 1 or any(result[key] != first[key] for key in grouping)
            for result in scores):
         raise ValueError("all scores must use the same profile and ASR settings")
+    if any(not result.get("reference_coverage", {}).get("complete", True) for result in scores):
+        raise ValueError("partial annotations cannot be included in aggregate scores")
     for key in ("media_sha256", "lyrics_sha256"):
         if len({result[key] for result in scores}) != len(scores):
             raise ValueError(f"duplicate input in the evaluation set ({key})")
@@ -169,6 +206,10 @@ def main():
     compare = sub.add_parser("score", help="score a complete reference against one run")
     for name in ("sync", "reference", "output"):
         compare.add_argument(name, type=Path)
+    paired = sub.add_parser("compare", help="compare baseline and refined against the same reference")
+    for name in ("baseline", "refined", "reference", "output"):
+        paired.add_argument(name, type=Path)
+    paired.add_argument("--allow-partial", action="store_true", help="diagnostics only; omitted rows are not scored")
     cohort = sub.add_parser("summarize", help="aggregate tracks with identical settings")
     cohort.add_argument("output", type=Path)
     cohort.add_argument("scores", type=Path, nargs="+")
@@ -180,6 +221,11 @@ def main():
             result = score(read_json(args.sync), read_json(args.reference))
             write_new(args.output, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
             print(json.dumps(result["counts"], ensure_ascii=False))
+        elif args.command == "compare":
+            result = compare_profiles(read_json(args.baseline), read_json(args.refined), read_json(args.reference),
+                                      allow_partial=args.allow_partial)
+            write_new(args.output, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+            print(json.dumps({"reference_coverage": result["reference_coverage"], "changes": result["changes"]}))
         else:
             result = summarize([read_json(path) for path in args.scores])
             write_new(args.output, json.dumps(result, ensure_ascii=False, indent=2) + "\n")

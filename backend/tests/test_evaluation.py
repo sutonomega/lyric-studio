@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from lyric_studio.evaluation import score, summarize
+from lyric_studio.evaluation import compare_profiles, score, summarize
 
 
 def cue(number, start, end, status):
@@ -57,6 +57,25 @@ class FixedEvaluationTests(unittest.TestCase):
             summarize([one, one])
         with self.assertRaisesRegex(ValueError, "same profile and ASR settings"):
             summarize([one, {**two, "asr": {"device": "cuda"}}])
+
+    def test_partial_comparison_is_explicit_and_cannot_be_aggregated(self):
+        refined = {**self.sync, "profile": "refined", "lines": [
+            cue(1, 1500, 3700, "review"), cue(2, 4500, 5800, "review"),
+            cue(3, None, None, "unplaced"), cue(4, 8000, 9000, "review"),
+        ]}
+        reference = {**self.reference, "rows": self.reference["rows"][:-1]}
+        with self.assertRaisesRegex(ValueError, "unannotated"):
+            compare_profiles(self.sync, refined, reference)
+        result = compare_profiles(self.sync, refined, reference, allow_partial=True)
+        self.assertEqual(result["reference_coverage"], {"annotated": 3, "total": 4, "complete": False})
+        self.assertEqual(result["changes"]["newly_in_tolerance"], ["line-2"])
+        self.assertEqual(result["changes"]["newly_outside_tolerance"], ["line-1"])
+        self.assertEqual(result["changes"]["unsung_placement_fixed"], ["line-3"])
+        with self.assertRaisesRegex(ValueError, "partial annotations"):
+            summarize([result["baseline"]])
+        with self.assertRaisesRegex(ValueError, "same ASR settings"):
+            compare_profiles(self.sync, {**refined, "asr": {"device": "cuda", "seed": 0}}, reference,
+                             allow_partial=True)
 
 
 if __name__ == "__main__":

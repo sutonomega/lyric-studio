@@ -82,3 +82,11 @@ GPU指定時は認識だけが CUDA の `int8_float16` で動く。ボーカル�
 ~~~
 
 両端が500ms以内の割合、未配置、歌唱なしの誤配置、警告の捕捉率・適合率、開始・終了の誤差を集計する。判定保留は件数を報告して精度の分母から除く。集計時はプロファイル・認識設定が等しいスコアを指定する。手直し時間の比較方法と移行基準案は [検証計画](../docs/sync-validation.md) を参照する。
+
+原音の基準結果と補正込み結果を同じ注釈で比較する。どちらも同一の音声・歌詞・smallモデル・認識設定を使う。基準結果に `--seed 0` を使った場合、補正込みでも同じシードを指定する。
+
+~~~powershell
+& .venv/Scripts/python.exe -m lyric_studio.evaluation compare local-data/baseline/sync.json local-data/refined/sync.json local-data/reference.json local-data/comparison.json
+~~~
+
+注釈の途中確認には `--allow-partial` を付ける。記録済みの行だけを比較し、部分結果は固定評価セットの集計対象から除く。
