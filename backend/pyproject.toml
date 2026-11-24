@@ -21,4 +21,4 @@ lyric-sync-pilot = "lyric_studio.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-lyric_studio = ["reference.html"]
+lyric_studio = ["reference.html", "review.html"]

@@ -79,6 +79,13 @@ def get_vocals(args, ffmpeg, directory):
     return directory / "stems" / "htdemucs" / "mix" / "vocals.wav", round(perf_counter() - start, 3)
 
 
+def render_srt(placed):
+    return "\n".join(
+        f'{number}\n{srt_time(line["start_ms"])} --> {srt_time(line["end_ms"])}\n{line["text"]}\n'
+        for number, line in enumerate(placed, 1)
+    )
+
+
 def write_results(output, lines, report):
     placed = [line for line in lines if line["start_ms"] is not None]
     duration = report["duration_ms"]
@@ -88,11 +95,7 @@ def write_results(output, lines, report):
         raise ValueError("overlapping subtitle candidates")
     report.update(counts=dict(Counter(cue["status"] for cue in lines)),
                   excluded_from_srt=len(lines) - len(placed), lines=lines)
-    text = "\n".join(
-        f'{number}\n{srt_time(line["start_ms"])} --> {srt_time(line["end_ms"])}\n{line["text"]}\n'
-        for number, line in enumerate(placed, 1)
-    )
-    (output / "subtitles.srt").write_text(text, encoding="utf-8-sig")
+    (output / "subtitles.srt").write_text(render_srt(placed), encoding="utf-8-sig")
     (output / "sync.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

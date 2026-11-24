@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>字幕レビュー · Lyric Studio</title>
+<style>
+:root{color-scheme:dark;font:15px/1.55 "Segoe UI","Yu Gothic UI",system-ui,sans-serif;background:#0f121a;color:#eef2fa;--surface:#171c28;--panel:#1c2231;--line:#30384e;--muted:#a4b0c8;--accent:#acd0ff;--mint:#a5e6d2;--amber:#f7d397}
+*{box-sizing:border-box}
+body{margin:0}
+header{background:#151925;border-bottom:1px solid var(--line)}
+.bar,.shell{max-width:1470px;margin:auto;padding:0 26px}
+.bar{min-height:65px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:.02em}
+.mark{display:flex;align-items:center;justify-content:center;gap:3px;width:32px;height:32px;border-radius:8px;background:#253958}
+.mark i{width:3px;background:var(--accent);border-radius:2px;height:12px}.mark i:nth-child(2){height:20px}.mark i:nth-child(3){height:8px}
+.shell{padding-top:22px;padding-bottom:24px}
+.heading{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin-bottom:18px}
+h1,h2,h3,p{margin:0}
+h1{font-size:1.65rem;line-height:1.28}h2{font-size:1.04rem}h3{font-size:.98rem}
+.hint,.subtle{color:var(--muted);font-size:.87rem}
+.hint{margin-top:5px}
+.workspace{display:grid;grid-template-columns:minmax(350px,1fr) minmax(420px,1.05fr);gap:16px;align-items:start}
+.column{display:grid;gap:14px;min-width:0}
+.panel{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.padding{padding:14px 16px}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+button,select,input{font:inherit}
+button,select,.file{color:inherit;background:#242d40;border:1px solid #465372;border-radius:7px;padding:6px 10px}
+button,.file{cursor:pointer}
+button:hover:enabled,.file:hover{background:#303e59}
+button:disabled{opacity:.48;cursor:default}
+button.primary{background:var(--accent);color:#14253f;border-color:var(--accent);font-weight:700}
+button.primary:hover:enabled{background:#c4dcff}
+select{max-width:100%}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.trackpicker{display:flex;align-items:center;gap:7px;min-width:0;color:var(--muted)}
+.trackpicker select{max-width:min(46vw,370px);min-width:5em}
+.file input{position:absolute;width:1px;height:1px;margin:0;clip-path:inset(50%)}
+.file:focus-within{outline:2px solid var(--amber);outline-offset:2px}
+.stage{position:relative;display:grid;place-items:center;min-height:245px;isolation:isolate;overflow:hidden;background:radial-gradient(ellipse at 58% 20%,#25385a 0,#161f32 44%,#111622 78%);border-bottom:1px solid var(--line)}
+.stage.has-video{aspect-ratio:16/9;min-height:0;background:#0b0e15}
+#player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#subtitle{position:relative;max-width:90%;padding:11px 18px;text-align:center;border-radius:8px;background:#0c1020ad;color:#fff;font-weight:650;font-size:clamp(1.15rem,2.1vw,1.8rem);text-shadow:0 2px 4px #080a12;overflow-wrap:anywhere;white-space:pre-wrap}
+.has-video #subtitle{align-self:end;margin-bottom:7%}
+.clock{display:flex;justify-content:space-between;color:var(--muted);font-size:.81rem;font-variant-numeric:tabular-nums;gap:8px}
+#waveform{width:100%;height:66px;display:block;margin-top:8px;border-radius:6px;background:#111726}
+#seek{width:100%;margin:3px 0 8px;accent-color:var(--accent)}
+#source-status{color:var(--muted);font-size:.85rem;margin-top:9px;min-height:1.3em;word-break:break-word}
+#source-status.error{color:#ffbbb8}
+.transport{justify-content:space-between}
+.transport .actions{gap:7px}
+.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.stat{border:1px solid var(--line);background:#1c2333;border-radius:8px;padding:8px 10px;font-size:.78rem;color:var(--muted)}
+.stat strong{display:block;font-size:1.26rem;color:#eef2fa;font-variant-numeric:tabular-nums;line-height:1.2}
+.stat:first-child strong{color:var(--mint)}.stat:nth-child(2) strong{color:var(--amber)}
+.filter{border-radius:7px;font-size:.86rem}
+.filter[aria-pressed=true]{background:#344b6e;border-color:#7ba1d1;color:#fff}
+#search{width:100%;margin-top:10px;border:1px solid #42506c;border-radius:7px;padding:7px 10px;color:inherit;background:#111724}
+.list{max-height:554px;overflow:auto;border-top:1px solid var(--line);contain:layout style}
+.row{width:100%;display:grid;grid-template-columns:2.2em minmax(0,1fr) auto;gap:10px;text-align:left;align-items:center;padding:9px 13px;border:0;border-bottom:1px solid #2b3449;border-left:3px solid transparent;border-radius:0;background:#171d2a}
+.row:hover:enabled{background:#212b40}
+.row[aria-pressed=true]{background:#253752;border-left-color:var(--accent)}
+.row.playing .lyric{color:#c0deff}
+.row .number,.row .time{color:var(--muted);font-size:.78rem;font-variant-numeric:tabular-nums}
+.row .lyric{display:block;overflow-wrap:anywhere;white-space:pre-wrap;font-size:.94rem}
+.badge{padding:2px 6px;border-radius:5px;background:#263143;color:var(--muted);font-size:.71rem;white-space:nowrap}
+.badge.supported{background:#1f3938;color:var(--mint)}.badge.review{background:#423627;color:var(--amber)}
+#empty{padding:20px;color:var(--muted)}
+.detail-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 12px;margin:10px 0 0;font-size:.88rem}
+dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+#reasons{margin:9px 0 0;padding-left:19px;color:var(--amber);font-size:.83rem}
+[hidden]{display:none!important}
+@media(max-width:850px){
+.bar,.shell{padding-left:13px;padding-right:13px}
+.workspace{grid-template-columns:minmax(0,1fr)}
+.heading{align-items:flex-start;flex-wrap:wrap}
+.stage{min-height:200px}
+.list{max-height:420px}
+}
+</style>
+</head>
+<body>
+<header><div class="bar"><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Lyric Studio</div><label class="trackpicker">曲 <select id="track"></select></label></div></header>
+<main class="shell">
+  <div class="heading">
+    <div><h1>字幕レビュー</h1><p class="hint" id="track-summary"></p></div>
+    <div class="actions"><label class="file">音源を選ぶ<input id="source" type="file" accept=".mp3,.wav,.mp4,audio/*,video/mp4"></label><button id="download" type="button">SRTを保存</button></div>
+  </div>
+  <div class="workspace">
+    <div class="column">
+      <section class="panel" aria-label="音源と字幕のプレビュー">
+        <div class="stage" id="stage"><div id="player"></div><p id="subtitle" hidden></p></div>
+        <div class="padding">
+          <div class="actions transport">
+            <div class="actions"><button class="primary" id="toggle" type="button" disabled>再生</button><button id="clip" type="button" disabled>この行を試聴</button></div>
+            <label class="subtle">速度 <select id="rate"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option></select></label>
+          </div>
+          <canvas id="waveform" aria-hidden="true"></canvas>
+          <input type="range" id="seek" min="0" max="1" step="10" value="0" aria-label="再生位置" disabled>
+          <div class="clock"><output id="elapsed" aria-label="現在の時刻">0:00.000</output><span id="duration"></span></div>
+          <p id="source-status" role="status"></p>
+        </div>
+      </section>
+      <section class="panel padding" aria-labelledby="detail-title">
+        <div class="detail-heading"><h2 id="detail-title">行の詳細</h2><span class="badge" id="detail-status"></span></div>
+        <dl>
+          <dt>字幕の時刻</dt><dd id="detail-time"></dd>
+          <dt>別モデルの時刻</dt><dd id="detail-model"></dd>
+          <dt>文字の対応率</dt><dd id="detail-text"></dd>
+          <dt>ボーカル活動率</dt><dd id="detail-voice"></dd>
+        </dl>
+        <ul id="reasons"></ul>
+      </section>
+    </div>
+    <section class="panel" aria-labelledby="lyrics-heading">
+      <div class="padding">
+        <div class="detail-heading"><h2 id="lyrics-heading">歌詞行</h2><button id="next-review" type="button">次の要確認</button></div>
+        <div class="status-grid" aria-label="自動チェック内訳">
+          <div class="stat"><strong id="count-supported"></strong>裏付けあり</div><div class="stat"><strong id="count-review"></strong>要確認</div><div class="stat"><strong id="count-unplaced"></strong>未配置</div>
+        </div>
+        <div class="actions" id="filters" aria-label="絞り込み">
+          <button type="button" class="filter" data-state="all" aria-pressed="true">すべて</button><button type="button" class="filter" data-state="review" aria-pressed="false">要確認</button><button type="button" class="filter" data-state="supported" aria-pressed="false">裏付けあり</button><button type="button" class="filter" data-state="unplaced" aria-pressed="false">未配置</button>
+        </div>
+        <input type="search" id="search" placeholder="歌詞を検索" aria-label="歌詞を検索">
+      </div>
+      <div class="list" id="scroll"><div id="rows"></div><p id="empty" hidden>該当する行がありません。</p></div>
+    </section>
+  </div>
+</main>
+<script type="application/json" id="data">__REVIEW_DATA__</script>
+<script>
+const get = id => document.getElementById(id);
+const tracks = JSON.parse(get('data').textContent).tracks;
+const labels = {supported:'裏付けあり', review:'要確認', unplaced:'未配置'};
+const reasons = {
+  unplaced:'字幕時刻を推定できませんでした。',
+  second_model_unplaced:'別モデルでは時刻を推定できませんでした。',
+  boundary_disagreement:'別モデルと開始または終了が500msを超えて異なります。',
+  second_model_low_text_support:'別モデルの文字対応率が65%未満です。',
+  low_vocal_activity:'区間内のボーカル活動率が35%未満です。',
+  partial_text_match:'認識結果と歌詞の一致が部分的です。',
+  partial_boundary_match:'認識結果で行の端を確認できませんでした。',
+  short_line:'短い歌詞行のため対応を確認してください。',
+  segment_boundary_estimate:'語の時刻がなく、区間の時刻から推定しました。',
+  reading_and_surface_disagree:'表記と読みから得た時刻に差があります。',
+  insufficient_text_match:'歌詞と認識結果の一致が不足しています。',
+  implausible_span:'認識区間が長く離れています。',
+  long_internal_gap:'行内に長い空白があります。',
+  invalid_or_overlapping_time:'時刻の順序または重複を解消できませんでした。',
+  experimental_recovery_requires_review:'別の認識結果とボーカル音量から候補を補完しました。',
+  experimental_boundary_requires_review:'複数の認識の境界から時刻を調整しました。',
+  vocal_tail_before_pause:'分離ボーカルが静かになる位置まで終了を延ばしました。',
+  trailing_vocal_silence:'分離ボーカルの末尾の無音を除きました。',
+  uncertain_trailing_vocal_silence:'末尾に静かな区間があります。時刻は要確認です。'
+};
+const sources = new Map(), positions = new Map();
+let trackIndex = 0, selected = 0, filter = 'all', media, fileRequest = 0, clipEnd = null;
+let rowButtons = new Map(), activeRow = -1, frameScheduled = false;
+
+function time(ms) {
+  return Math.floor(ms/60000) + ':' + String(Math.floor(ms/1000)%60).padStart(2,'0') +
+    '.' + String(ms%1000).padStart(3,'0');
+}
+function interval(a,b) { return a == null || b == null ? '—' : time(a) + ' → ' + time(b); }
+function percent(value) { return value == null ? '—' : Math.round(value*100) + '%'; }
+function track() { return tracks[trackIndex]; }
+function ready() { return media?.readyState > 0 && Number.isFinite(media.duration); }
+function now() { return ready() ? Math.round(media.currentTime*1000) : (positions.get(trackIndex) ?? 0); }
+function sourceStatus(text,error=false) {
+  const node=get('source-status'); node.textContent=text; node.classList.toggle('error',error);
+}
+function draw() {
+  const canvas=get('waveform'), w=canvas.clientWidth, h=canvas.clientHeight;
+  if (!w || !h) return;
+  const scale=window.devicePixelRatio || 1;
+  if (canvas.width!==Math.round(w*scale) || canvas.height!==Math.round(h*scale)) {
+    canvas.width=Math.round(w*scale); canvas.height=Math.round(h*scale);
+  }
+  const ctx=canvas.getContext('2d'); ctx.setTransform(scale,0,0,scale,0,0);ctx.clearRect(0,0,w,h);
+  const r=track().rows[selected], length=track().duration_ms, playhead=Math.min(w,w*now()/length);
+  if (r?.start_ms!=null) {
+    ctx.fillStyle='#39568266'; ctx.fillRect(w*r.start_ms/length,0,w*(r.end_ms-r.start_ms)/length,h);
+  }
+  const peaks=sources.get(trackIndex)?.peaks, columns=Math.max(2,Math.floor(w/3));
+  if (peaks) {
+    for(let i=0;i<columns;i++){
+      const a=Math.floor(i*peaks.length/columns), b=Math.max(a+1,Math.floor((i+1)*peaks.length/columns));
+      let peak=0;for(let j=a;j<b && j<peaks.length;j++)peak=Math.max(peak,peaks[j]);
+      const size=Math.max(2,Math.min(h-8,peak*(h-8)));
+      ctx.fillStyle=i*3<playhead?'#a7d0ff':'#6581ac';ctx.fillRect(i*3,(h-size)/2,2,size);
+    }
+  } else {
+    ctx.fillStyle='#425477';ctx.fillRect(0,Math.floor(h/2),w,1);
+  }
+  ctx.fillStyle='#d6e8ff';ctx.fillRect(Math.min(w-1,playhead),0,1,h);
+}
+function show() {
+  get('elapsed').value=time(now());
+  get('seek').value=now();
+  get('seek').disabled=!ready();
+  get('toggle').disabled=!ready();
+  get('toggle').textContent=media && !media.paused?'一時停止':'再生';
+  get('clip').disabled=!ready() || track().rows[selected]?.start_ms==null;
+  const current=ready() ? track().rows.findIndex(r=>r.start_ms!=null && r.start_ms<=now() && r.end_ms>now()) : -1;
+  if (activeRow!==current) {
+    rowButtons.get(activeRow)?.classList.remove('playing');
+    if(current>=0)rowButtons.get(current)?.classList.add('playing');
+    activeRow=current;
+  }
+  const row=current>=0?track().rows[current]:(media?.paused?track().rows[selected]:null);
+  get('subtitle').hidden=!row;
+  get('subtitle').textContent=row?.text??'';
+  if(!frameScheduled){
+    frameScheduled=true;requestAnimationFrame(()=>{frameScheduled=false;draw();});
+  }
+}
+function setPosition(ms) {
+  positions.set(trackIndex,ms);
+  if(ready())media.currentTime=Math.max(0,Math.min(media.duration,ms/1000));
+  show();
+}
+function makeMedia(){
+  media?.pause();
+  clipEnd=null;
+  const isVideo=track().media_name.toLowerCase().endsWith('.mp4');
+  const node=document.createElement(isVideo?'video':'audio');
+  node.preload='metadata';node.playsInline=true;
+  media=node;
+  get('stage').classList.toggle('has-video',isVideo && sources.has(trackIndex));
+  get('player').replaceChildren(node);
+  const selectedTrack=trackIndex;
+  const live=()=>media===node && trackIndex===selectedTrack;
+  node.addEventListener('loadedmetadata',()=>{
+    if(!live())return;
+    node.playbackRate=+get('rate').value;setPosition(positions.get(trackIndex)??0);
+    sourceStatus('読み込み済み　'+track().media_name);
+  });
+  node.addEventListener('timeupdate',()=>{
+    if(!live())return;
+    positions.set(trackIndex,now());
+    if(clipEnd!=null && node.currentTime>=clipEnd){clipEnd=null;node.pause();}
+    show();
+  });
+  for(const event of ['play','pause','seeked','ended'])node.addEventListener(event,()=>{if(live())show();});
+  node.addEventListener('error',()=>{if(live())sourceStatus('音源を再生できませんでした。',true);});
+  const src=sources.get(trackIndex);
+  if(src)node.src=src.url;
+  else sourceStatus('音源を選択　'+track().media_name);
+}
+function detail() {
+  const c=track().rows[selected];
+  get('detail-title').textContent=(selected+1)+'行目の詳細';
+  get('detail-status').textContent=labels[c.status];get('detail-status').className='badge '+c.status;
+  get('detail-time').textContent=interval(c.start_ms,c.end_ms);
+  get('detail-model').textContent=interval(c.second_start_ms,c.second_end_ms);
+  get('detail-text').textContent=percent(c.second_text_coverage);
+  get('detail-voice').textContent=percent(c.voice_fraction);
+  const list=get('reasons');list.replaceChildren();
+  for(const key of new Set([...c.reasons,...c.generation_reasons])){
+    const li=document.createElement('li');li.textContent=reasons[key]??key;list.append(li);
+  }
+}
+function select(index, seek=true) {
+  rowButtons.get(selected)?.setAttribute('aria-pressed','false');
+  selected=index;rowButtons.get(index)?.setAttribute('aria-pressed','true');detail();
+  clipEnd=null;media?.pause();
+  if(seek && track().rows[index].start_ms!=null){setPosition(track().rows[index].start_ms);}
+  else show();
+}
+function renderList() {
+  const query=get('search').value.normalize('NFKC').toLowerCase().trim(), root=get('rows');
+  const fragment=document.createDocumentFragment();rowButtons=new Map();
+  for(const [i,r] of track().rows.entries()){
+    if((filter!=='all'&&r.status!==filter)||(query&&!r.text.normalize('NFKC').toLowerCase().includes(query)))continue;
+    const row=document.createElement('button');row.type='button';row.className='row';
+    row.dataset.index=i;row.setAttribute('aria-pressed',String(i===selected));
+    const index=document.createElement('span');index.className='number';index.textContent=String(i+1).padStart(2,'0');
+    const content=document.createElement('span'), lyric=document.createElement('span'), stamp=document.createElement('span');
+    lyric.className='lyric';lyric.textContent=r.text;
+    stamp.className='time';stamp.textContent=interval(r.start_ms,r.end_ms);
+    content.append(lyric,stamp);
+    const badge=document.createElement('span');badge.className='badge '+r.status;badge.textContent=labels[r.status];
+    row.append(index,content,badge);fragment.append(row);rowButtons.set(i,row);
+  }
+  root.replaceChildren(fragment);get('empty').hidden=rowButtons.size>0;activeRow=-1;show();
+}
+function changeFilter(value){
+  filter=value;
+  for(const button of get('filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.state===value));
+  renderList();
+}
+function changeTrack(index){
+  if(!Number.isInteger(index) || !tracks[index])return;
+  if(ready())positions.set(trackIndex,now());
+  ++fileRequest;trackIndex=index;selected=0;
+  get('source').value='';get('search').value='';
+  const record=track();
+  get('track-summary').textContent=record.title+' · '+record.rows.length+'行';
+  get('duration').textContent=time(record.duration_ms);
+  get('seek').max=record.duration_ms;
+  for(const key of Object.keys(labels))get('count-'+key).textContent=record.counts[key]??0;
+  get('next-review').disabled=!record.counts.review;
+  makeMedia();detail();changeFilter('all');get('scroll').scrollTop=0;
+}
+async function analyzeWave(buffer, source){
+  if(!window.AudioContext)return;
+  const context=new AudioContext();
+  try{
+    const audio=await context.decodeAudioData(buffer);
+    const channel=audio.getChannelData(0), count=Math.min(1100,channel.length);
+    const peaks=new Float32Array(count);
+    for(let i=0;i<count;i++){
+      const start=Math.floor(i*channel.length/count), end=Math.floor((i+1)*channel.length/count);
+      for(let j=start;j<end;j++)peaks[i]=Math.max(peaks[i],Math.abs(channel[j]));
+    }
+    let max=0;for(const v of peaks)max=Math.max(max,v);
+    if(max>0)for(let i=0;i<peaks.length;i++)peaks[i]/=max;
+    source.peaks=peaks;show();
+  }catch{}finally{await context.close();}
+}
+for(const [i,t] of tracks.entries()){
+  const option=document.createElement('option');option.value=i;option.textContent=t.title;get('track').append(option);
+}
+get('track').addEventListener('change',event=>changeTrack(Number(event.target.value)));
+get('filters').addEventListener('click',event=>{const button=event.target.closest('[data-state]');if(button)changeFilter(button.dataset.state);});
+get('search').addEventListener('input',renderList);
+get('rows').addEventListener('click',event=>{const row=event.target.closest('[data-index]');if(row)select(Number(row.dataset.index));});
+get('next-review').addEventListener('click',()=>{
+  const review=track().rows.flatMap((row,i)=>row.status==='review'?[i]:[]);
+  if(!review.length)return;
+  const index=review.find(i=>i>selected)??review[0];
+  get('search').value='';changeFilter('review');select(index);rowButtons.get(index)?.scrollIntoView({block:'nearest'});
+});
+get('source').addEventListener('change',async event=>{
+  const file=event.target.files[0];if(!file)return;
+  const request=++fileRequest,index=trackIndex;
+  sourceStatus('音源を照合しています。');
+  try{
+    const buffer=await file.arrayBuffer();
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',buffer)),x=>x.toString(16).padStart(2,'0')).join('');
+    if(request!==fileRequest)return;
+    if(hash!==tracks[index].media_sha256){sourceStatus('選んだファイルが対象音源と一致しません。',true);return;}
+    const prior=sources.get(index);
+    if(prior)URL.revokeObjectURL(prior.url);
+    const record={url:URL.createObjectURL(file),peaks:null};sources.set(index,record);
+    makeMedia();show();void analyzeWave(buffer,record);
+  }catch{if(request===fileRequest)sourceStatus('音源を確認できません。EdgeまたはChromeで開いてください。',true);}
+});
+get('toggle').addEventListener('click',()=>{
+  if(!ready())return;clipEnd=null;
+  if(media.paused)void media.play().catch(()=>sourceStatus('再生できませんでした。',true));else media.pause();
+});
+get('clip').addEventListener('click',()=>{
+  if(!ready())return;
+  const c=track().rows[selected];if(c.start_ms==null)return;
+  setPosition(Math.max(0,c.start_ms-200));clipEnd=Math.min(media.duration,c.end_ms/1000+.25);
+  void media.play().catch(()=>{clipEnd=null;sourceStatus('再生できませんでした。',true);});
+});
+get('seek').addEventListener('input',event=>{clipEnd=null;setPosition(+event.target.value);});
+get('rate').addEventListener('change',event=>{if(media)media.playbackRate=+event.target.value;});
+get('download').addEventListener('click',()=>{
+  const url=URL.createObjectURL(new Blob(['\uFEFF',track().srt],{type:'application/x-subrip;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=track().title+'.srt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+window.addEventListener('resize',show);
+changeTrack(0);
+</script>
+</body>
+</html>

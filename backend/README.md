@@ -109,3 +109,17 @@ $checkModel = & .venv/Scripts/python.exe -c 'from faster_whisper.utils import do
 ~~~
 
 自動チェックの一致指標は、音声認識間の一致と音量の裏付けを示す。正解時刻に対する精度を計測するときは、注釈を使った採点結果と区別する。 [確認用モデル](https://huggingface.co/Systran/faster-whisper-medium)
+
+## ローカルの字幕レビュー
+
+同期結果の JSON と、自動チェックの `rows` を含む曲ごとの JSON を用意します。マニフェスト内の相対パスはマニフェストの場所が基準です。
+
+```json
+{"tracks":[{"media":"song.mp3","sync":"sync.json","audit":"audit.json"}]}
+```
+
+```powershell
+python -m lyric_studio.review manifest.json review.html
+```
+
+生成した HTML を Edge または Chrome で開き、元音源を選びます。音源の指紋が一致すると、要確認行を絞り込んで試聴できます。チェックの理由、別モデルの時刻、SRT の保存も利用できます。生成した HTML には歌詞と時刻が含まれるため、素材と同様にローカルで管理してください。
