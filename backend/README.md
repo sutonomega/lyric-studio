@@ -43,3 +43,22 @@ FFmpegを直接指定する場合は `--ffmpeg C:\path\to\ffmpeg.exe` を付け�
 ~~~
 
 依存ライブラリと配布時の条件は [技術選定案](../docs/technology-selection.md) を参照する。
+
+## NVIDIA GPUで音声認識を試す
+
+RTX 4070 SUPER / Windows 11 / CTranslate2 4.9.1 の検証では、CUDA 12 用 cuBLAS 12.9.1.4 を作業フォルダに置き、CTranslate2のWindows wheelに含まれる cuDNN 9 のDLLと組み合わせて推論できた。NVIDIAドライバーは事前に用意する。次の手順は現在のPowerShellプロセスのPATHにだけ追加する。
+
+~~~powershell
+$runtime = Join-Path (Get-Location) 'local-data/cuda-windows'
+& .venv/Scripts/python.exe -m pip install --target $runtime 'nvidia-cublas-cu12==12.9.1.4'
+$env:PATH = "$(Join-Path $runtime 'nvidia/cublas/bin');$env:PATH"
+& .venv/Scripts/python.exe -m lyric_studio.cli '録音.mp4' '歌詞.txt' --small-model $small --device cuda --output-dir local-data/cuda-baseline
+~~~
+
+GPU指定時は認識だけが CUDA の `int8_float16` で動く。ボーカル分離はCPU。既定のCPU認識は `int8` で、CPUとGPUの字幕候補は評価結果を分けて扱う。 [CTranslate2のインストール要件](https://opennmt.net/CTranslate2/installation.html)・[faster-whisperのGPU要件](https://github.com/SYSTRAN/faster-whisper#gpu)・[使用したcuBLASの配布版](https://pypi.org/project/nvidia-cublas-cu12/12.9.1.4/)
+
+### モデルとライブラリの入手条件
+
+- faster-whisperとCTranslate2はMIT。smallとTurboの重みは、セットアップ欄で指定したモデルカードとリビジョンを確認する。SudachiPyとSudachiDict-coreはApache-2.0。 [faster-whisper](https://github.com/SYSTRAN/faster-whisper)・[CTranslate2](https://github.com/OpenNMT/CTranslate2)・[SudachiDict](https://github.com/WorksApplications/SudachiDict)
+- DemucsのコードはMIT。htdemucsの重みは作者の配布元から取得する。検証したモデルカードで重みの個別ライセンス表記は確認できなかったため、重みの再配布を検討するときは条件を別途確認する。 [Demucs](https://github.com/adefossez/demucs)・[HTDemucsモデル](https://huggingface.co/adefossez/HTDemucs)
+- cuBLASやcuDNNを使う場合はNVIDIAの利用条件が適用される。FFmpegは取得したビルドのライセンスと構成を確認する。 [CUDA EULA](https://docs.nvidia.com/cuda/eula/index.html)・[cuDNN利用条件](https://docs.nvidia.com/cudnn/reference/eula/)・[FFmpegのライセンス](https://ffmpeg.org/legal.html)

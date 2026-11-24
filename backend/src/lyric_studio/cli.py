@@ -53,8 +53,8 @@ def transcribe(model, samples):
     return items
 
 
-def load_model(location):
-    return WhisperModel(str(location), device="cpu", compute_type="int8",
+def load_model(location, device, compute_type):
+    return WhisperModel(str(location), device=device, compute_type=compute_type,
                         cpu_threads=8, local_files_only=True)
 
 
@@ -103,7 +103,8 @@ def run(args, ffmpeg, directory):
     if not text.strip():
         raise ValueError("lyric file is empty")
 
-    small = load_model(args.small_model)
+    compute_type = "int8_float16" if args.device == "cuda" else "int8"
+    small = load_model(args.small_model, args.device, compute_type)
     start = perf_counter()
     items = {"original": transcribe(small, original)}
     times = {"original_asr": round(perf_counter() - start, 3)}
@@ -113,7 +114,7 @@ def run(args, ffmpeg, directory):
     report = {
         "schema_version": 1, "profile": "refined" if args.turbo_model else "baseline",
         "duration_ms": duration,
-        "asr": {"device": "cpu", "compute_type": "int8", "threads": 8,
+        "asr": {"device": args.device, "compute_type": compute_type, "threads": 8,
                 "beam_size": 5, "language": "ja", "vad": False,
                 "model_revisions": {"small": args.small_model.name},
                 "faster_whisper": version("faster-whisper"),
@@ -134,7 +135,7 @@ def run(args, ffmpeg, directory):
     items["vocals"] = transcribe(small, vocals)
     times["vocals_asr"] = round(perf_counter() - start, 3)
     del small
-    turbo = load_model(args.turbo_model)
+    turbo = load_model(args.turbo_model, args.device, compute_type)
     start = perf_counter()
     items["turbo"] = transcribe(turbo, original)
     times["turbo_asr"] = round(perf_counter() - start, 3)
@@ -157,6 +158,7 @@ def main():
     stems.add_argument("--vocals", type=Path, help="pre-separated time-aligned vocal stem")
     stems.add_argument("--demucs-python", type=Path, help="Python with Demucs and cached htdemucs")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="executable or PATH command")
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="ASR device")
     parser.add_argument("--output-dir", type=Path, required=True, help="new output directory")
     args = parser.parse_args()
     if bool(args.turbo_model) != bool(args.vocals or args.demucs_python):
