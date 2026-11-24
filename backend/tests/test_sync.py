@@ -63,6 +63,20 @@ class SyncPilotTests(unittest.TestCase):
         audio[1320 * 16:1800 * 16] = .1
         self.assertEqual(trim_silent_ends([cue], audio), [])
 
+    def test_large_silent_tail_is_trimmed_or_flagged(self):
+        cue = {"id": "line-1", "status": "candidate", "start_ms": 400, "end_ms": 3300, "reasons": []}
+        audio = np.zeros(16000 * 4, dtype=np.float32)
+        audio[400 * 16:1750 * 16] = .1
+        silent = dict(cue, reasons=[])
+        self.assertEqual(trim_silent_ends([silent], audio)[0]["method"], "trailing_vocal_silence")
+        self.assertTrue(1750 <= silent["end_ms"] <= 1850)
+        audio[1750 * 16:3300 * 16] = .002
+        residual = dict(cue, reasons=[])
+        result = trim_silent_ends([residual], audio)
+        self.assertEqual(result[0]["method"], "uncertain_trailing_vocal_silence")
+        self.assertEqual(residual["end_ms"], 3300)
+        self.assertEqual(residual["status"], "review")
+
     def test_recovers_only_a_corroborated_terminal_repetition(self):
         lyric = "青い空が広がる"
         previous = {"id": "line-1", "text": lyric, "start_ms": 1000, "end_ms": 3000,

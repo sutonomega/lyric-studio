@@ -336,7 +336,7 @@ def extend_vocal_tails(cues, audio, duration):
 
 
 def trim_silent_ends(cues, audio):
-    """Trim sustained silence inside a cue when two low thresholds find the same end."""
+    """Trim corroborated tails and flag large adjustments without clear silence."""
     frames = len(audio) // 320
     if frames < 25:
         return []
@@ -355,25 +355,35 @@ def trim_silent_ends(cues, audio):
         if level < .004:
             continue
         endings = []
+        long_tail = False
+        window = rms[max(first, last - 121):last]
         for db in (-24, -30):
             threshold = max(.001, level * 10 ** (db / 20))
-            window = rms[max(first, last - 46):last]
             voiced = np.flatnonzero(window >= threshold)
-            if not len(voiced) or len(window) - 1 - voiced[-1] < 12:
-                break
+            quiet_frames = len(window) - 1 - int(voiced[-1]) if len(voiced) else len(window)
+            long_tail |= quiet_frames >= 45
+            if not len(voiced) or quiet_frames < 12:
+                continue
             fall = last - len(window) + int(voiced[-1]) + 1
             if np.mean(rms[max(first, fall - 8):fall] >= threshold) < .75:
-                break
+                continue
             endings.append(fall * 20)
-        if len(endings) != 2 or abs(endings[0] - endings[1]) > 100:
-            continue
-        target = max(endings)
-        if target - start < 500 or not 240 <= end - target <= 900:
-            continue
-        cue.update(end_ms=target, status="review")
-        cue["reasons"].append("trailing_vocal_silence")
-        changes.append({"id": cue["id"], "method": "trailing_vocal_silence",
-                        "previous_end_ms": end, "end_ms": target})
+        agreed_end = max(endings) if len(endings) == 2 and abs(endings[0] - endings[1]) <= 100 else None
+        if agreed_end is not None and agreed_end - start >= 500:
+            removed = end - agreed_end
+            tail = rms[agreed_end // 20 + 5:last]
+            clear_long_silence = 900 < removed <= 2000 and len(tail) >= 25 and float(np.max(tail)) <= .001
+            if 240 <= removed <= 900 or clear_long_silence:
+                cue.update(end_ms=agreed_end, status="review")
+                cue["reasons"].append("trailing_vocal_silence")
+                changes.append({"id": cue["id"], "method": "trailing_vocal_silence",
+                                "previous_end_ms": end, "end_ms": agreed_end})
+                continue
+        if long_tail:
+            cue["status"] = "review"
+            cue["reasons"].append("uncertain_trailing_vocal_silence")
+            changes.append({"id": cue["id"], "method": "uncertain_trailing_vocal_silence",
+                            "end_ms": end, "candidate_end_ms": agreed_end})
     return changes
 
 
