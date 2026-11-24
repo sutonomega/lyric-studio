@@ -24,6 +24,7 @@ class Candidate:
     score: float
     origin: str
     crop: tuple[int, int] | None
+    surface_exact: bool = False
 
 
 def groups(rows):
@@ -62,7 +63,8 @@ def search(runs, text, tokenizer, left, right):
                 score = max(SequenceMatcher(None, a, b, autojunk=False).ratio()
                             for a, b in zip(expected, cache[phrase]) if a)
                 if score >= 0.35:
-                    best.append(Candidate(first["start_ms"], last["end_ms"], round(score, 4), origin, crop))
+                    exact = bool(expected[0]) and expected[0] == cache[phrase][0]
+                    best.append(Candidate(first["start_ms"], last["end_ms"], round(score, 4), origin, crop, exact))
     return sorted(best, key=lambda c: c.score, reverse=True)
 
 
@@ -234,14 +236,13 @@ def envelope_bands(audio, lo, hi):
     }
 
 
-def corroborated_gap(options, bands, lo, hi):
-    """Use a single bounded phrase when three recognitions agree and have no distant rival."""
+def agreed_gap_candidates(options, tolerance=400):
     if len(options) != 3 or any(not run or run[0].score < .86 for run in options):
         return None
     best = [run[0] for run in options]
     for edge in ("start_ms", "end_ms"):
         times = [getattr(candidate, edge) for candidate in best]
-        if max(times) - min(times) > 400:
+        if max(times) - min(times) > tolerance:
             return None
     for run in options:
         primary = run[0]
@@ -249,15 +250,39 @@ def corroborated_gap(options, bands, lo, hi):
             abs(candidate.start_ms - primary.start_ms), abs(candidate.end_ms - primary.end_ms)
         ) > 700 for candidate in run[1:]):
             return None
+    return best
+
+
+def vocal_support(bands, start, end):
+    return end > start and all(
+        sum(max(0, min(end, right) - max(start, left)) for left, right in bands[db]) >= .70 * (end - start)
+        for db in ("-18", "-22")
+    )
+
+
+def corroborated_gap(options, bands, lo, hi):
+    """Recover a bounded phrase when the recognition and vocal evidence are consistent."""
+    best = agreed_gap_candidates(options)
+    extension_start = None
+    if best is None:
+        if len(options) != 3 or any(not run for run in options):
+            return None
+        best = agreed_gap_candidates([[word for word in run if word.surface_exact] for run in options], 450)
+        if best is None:
+            return None
+        reading_only = [run[0] for run in options]
+        if any(short.surface_exact or short.score != 1.0 or abs(short.start_ms - full.start_ms) > 450
+               or full.end_ms - short.end_ms <= 700 for short, full in zip(reading_only, best, strict=True)):
+            return None
+        extension_start = max(word.end_ms for word in reading_only)
     start = max(lo, round(median(candidate.start_ms for candidate in best)))
     end = min(hi, round(median(candidate.end_ms for candidate in best)))
-    if end - start < MIN_DURATION:
+    if end - start < MIN_DURATION or not vocal_support(bands, start, end):
         return None
-    for db in ("-18", "-22"):
-        active = sum(max(0, min(end, b) - max(start, a)) for a, b in bands[db])
-        if active / (end - start) < .70:
-            return None
-    return {"start_ms": start, "end_ms": end, "method": "corroborated_local_lyric_match",
+    if extension_start is not None and not vocal_support(bands, extension_start, end):
+        return None
+    method = "corroborated_local_lyric_match" if extension_start is None else "corroborated_full_spelling_and_vocal_tail"
+    return {"start_ms": start, "end_ms": end, "method": method,
             "source_matches": [asdict(candidate) for candidate in best]}
 
 

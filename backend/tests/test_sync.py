@@ -26,6 +26,18 @@ class SyncPilotTests(unittest.TestCase):
         evidence[0].append(Candidate(1000, 4200, .95, "original", None))
         self.assertIsNone(corroborated_gap(evidence, bands, 1020, 3000))
 
+    def test_gap_recovery_prefers_full_spelling_with_sustained_vocals(self):
+        evidence = [
+            [Candidate(1000, 2500, 1.0, source, None), Candidate(1000, time, 1.0, source, None, True)]
+            for source, time in (("original", 5000), ("vocals", 5020), ("turbo", 4610))
+        ]
+        active = {db: [(900, 5200)] for db in ("-18", "-22")}
+        result = corroborated_gap(evidence, active, 1020, 5000)
+        self.assertEqual((result["start_ms"], result["end_ms"]), (1020, 5000))
+        self.assertEqual(result["method"], "corroborated_full_spelling_and_vocal_tail")
+        silent_tail = {db: [(900, 3100)] for db in ("-18", "-22")}
+        self.assertIsNone(corroborated_gap(evidence, silent_tail, 1020, 5000))
+
     def test_vocal_tail_extension_requires_a_pause(self):
         cue = {"id": "line-1", "status": "review", "start_ms": 400, "end_ms": 1000, "reasons": []}
         following = {"id": "line-2", "status": "candidate", "start_ms": 1900, "end_ms": 2900, "reasons": []}
