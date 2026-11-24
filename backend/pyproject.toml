@@ -19,3 +19,6 @@ lyric-sync-pilot = "lyric_studio.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+lyric_studio = ["reference.html"]

@@ -62,3 +62,21 @@ GPU指定時は認識だけが CUDA の `int8_float16` で動く。ボーカル�
 - faster-whisperとCTranslate2はMIT。smallとTurboの重みは、セットアップ欄で指定したモデルカードとリビジョンを確認する。SudachiPyとSudachiDict-coreはApache-2.0。 [faster-whisper](https://github.com/SYSTRAN/faster-whisper)・[CTranslate2](https://github.com/OpenNMT/CTranslate2)・[SudachiDict](https://github.com/WorksApplications/SudachiDict)
 - DemucsのコードはMIT。htdemucsの重みは作者の配布元から取得する。検証したモデルカードで重みの個別ライセンス表記は確認できなかったため、重みの再配布を検討するときは条件を別途確認する。 [Demucs](https://github.com/adefossez/demucs)・[HTDemucsモデル](https://huggingface.co/adefossez/HTDemucs)
 - cuBLASやcuDNNを使う場合はNVIDIAの利用条件が適用される。FFmpegは取得したビルドのライセンスと構成を確認する。 [CUDA EULA](https://docs.nvidia.com/cuda/eula/index.html)・[cuDNN利用条件](https://docs.nvidia.com/cudnn/reference/eula/)・[FFmpegのライセンス](https://ffmpeg.org/legal.html)
+
+## 固定評価
+
+試聴シートは元音声と歌詞から生成し、同期候補の時刻を表示しない。同じ曲の生成違いは、調整用と固定評価用にまたがらないようにする。
+
+~~~powershell
+& .venv/Scripts/python.exe -m lyric_studio.evaluation prepare '録音.mp3' '歌詞.txt' local-data/reference.html
+& .venv/Scripts/python.exe -m lyric_studio.cli '録音.mp3' '歌詞.txt' --small-model $small --device cpu --seed 0 --output-dir local-data/baseline
+~~~
+
+ブラウザでシートと対象素材を開いて全行に時刻・歌唱なし・判定保留のいずれかを記録する。歌われない構成指示が行として残っている場合は「歌唱なし」とする。注釈JSONは途中でも書き出し・再読込できる。入力のSHA-256が一致した全行の注釈を採点する。
+
+~~~powershell
+& .venv/Scripts/python.exe -m lyric_studio.evaluation score local-data/baseline/sync.json local-data/reference.json local-data/score.json
+& .venv/Scripts/python.exe -m lyric_studio.evaluation summarize local-data/cohort.json local-data/track-a-score.json local-data/track-b-score.json
+~~~
+
+両端が500ms以内の割合、未配置、歌唱なしの誤配置、警告の捕捉率・適合率、開始・終了の誤差を集計する。判定保留は件数を報告して精度の分母から除く。集計時はプロファイル・認識設定が等しいスコアを指定する。手直し時間の比較方法と移行基準案は [検証計画](../docs/sync-validation.md) を参照する。

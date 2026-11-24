@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>歌詞の時刻注釈</title>
+<style>
+:root { color-scheme: dark; font: 16px/1.55 system-ui, sans-serif; background: #11141c; color: #edf2fc; }
+* { box-sizing: border-box; }
+body { margin: auto; max-width: 1260px; padding: 24px; }
+h1 { font-size: 1.6rem; margin: 0 0 .4em; }
+h2 { font-size: 1.1rem; }
+p { margin: .5em 0; }
+main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.05fr); gap: 18px; align-items: start; }
+section { background: #191f2b; border: 1px solid #384662; padding: 16px; border-radius: 12px; min-width: 0; }
+.player { position: sticky; top: 10px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+button, input, select { font: inherit; }
+button, select, input[type=number] { background: #26344c; color: inherit; border: 1px solid #597096; border-radius: 6px; padding: 5px 8px; }
+button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: #c6dbff; color: #142442; }
+:focus-visible { outline: 2px solid #ffde91; outline-offset: 2px; }
+input[type=number] { width: 8.2em; }
+input[type=file], audio, video { max-width: 100%; }
+audio, video { display: block; width: 100%; margin: 10px 0; }
+video { max-height: 240px; }
+output { font-variant-numeric: tabular-nums; }
+.muted { color: #b5c2d9; }
+.error { color: #ffb9a7; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+td, th { padding: 7px 8px; border-bottom: 1px solid #35435d; vertical-align: top; }
+td:last-child { white-space: nowrap; }
+tr[data-active=true] { background: #293d57; }
+@media (max-width: 760px) { body { padding: 12px; } main { grid-template-columns: minmax(0,1fr); } .player { position: static; } }
+</style>
+</head>
+<body>
+<h1 id="title">歌詞の時刻注釈</h1>
+<p class="muted">最初に聞き取れる歌唱音から最後の歌唱音までを記録します。歌われない行と、境界が判定できない行も記録できます。</p>
+<main>
+<section class="player" aria-labelledby="player-heading">
+<h2 id="player-heading">原音を試聴</h2>
+<label>音声・動画を選ぶ <input id="media-file" type="file" accept=".mp3,.wav,.mp4"></label>
+<p id="file-name" class="muted"></p>
+<div id="player"></div>
+<p id="media-status" role="status"></p>
+<div class="controls">
+<output id="clock" aria-label="現在の再生時刻">0:00.000</output>
+<label>速度 <select id="rate"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option></select></label>
+<button type="button" data-step="-100">−0.1秒</button><button type="button" data-step="100">＋0.1秒</button>
+</div>
+<h2 id="selected"></h2>
+<div class="controls"><label>開始 (ms) <input id="start" type="number" min="0" step="1"></label><button id="capture-start" type="button">現在位置を開始に</button></div>
+<div class="controls"><label>終了 (ms) <input id="end" type="number" min="0" step="1"></label><button id="capture-end" type="button">現在位置を終了に</button></div>
+<div class="controls">
+<button type="button" class="primary" id="save">時刻を記録</button><button type="button" id="unsung">歌唱なし</button><button type="button" id="unclear">判定保留</button>
+<button type="button" id="next">次の未記録行</button><button type="button" id="clear">記録を消す</button>
+</div>
+<p id="notice" role="status"></p>
+</section>
+<section aria-labelledby="rows-heading">
+<h2 id="rows-heading">歌詞行</h2><p id="total"></p>
+<div class="controls">
+<button type="button" id="export">注釈JSONを書き出す</button>
+<label>注釈を再読み込み <input type="file" id="import" accept=".json,application/json"></label>
+</div>
+<table>
+<thead><tr><th scope="col">行</th><th scope="col">歌詞</th><th scope="col">記録</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+</section>
+</main>
+<script type="application/json" id="dataset">__DATASET__</script>
+<script>
+const get = id => document.getElementById(id);
+const data = JSON.parse(get('dataset').textContent);
+const names = {timed: '時刻あり', unsung: '歌唱なし', unclear: '保留'};
+const media = document.createElement(data.media_name.toLowerCase().endsWith('.mp4') ? 'video' : 'audio');
+media.controls = true;
+get('player').append(media);
+get('title').textContent = data.title + '｜歌詞の時刻注釈';
+get('file-name').textContent = '対象ファイル　' + data.media_name;
+let selected = 0;
+let annotations = new Map();
+let unsaved = false;
+let mediaUrl;
+let selection = 0;
+const stamps = {};
+const buttons = {};
+
+function notice(text, error = false, node = get('notice')) {
+  node.textContent = text;
+  node.classList.toggle('error', error);
+}
+function time(ms) {
+  return Math.floor(ms / 60000) + ':' + String(Math.floor(ms / 1000) % 60).padStart(2, '0') +
+    '.' + String(ms % 1000).padStart(3, '0');
+}
+function clock() {
+  get('clock').value = time(Math.round(media.currentTime * 1000));
+  const ready = Number.isFinite(media.duration);
+  for (const button of document.querySelectorAll('[data-step],#capture-start,#capture-end')) button.disabled = !ready;
+}
+function valid(start, end) {
+  return Number.isInteger(start) && Number.isInteger(end) && 0 <= start && start < end && end <= data.duration_ms;
+}
+function showRows() {
+  get('total').textContent = '記録済み ' + annotations.size + ' / ' + data.rows.length + ' 行';
+  for (const row of data.rows) {
+    const value = annotations.get(row.id);
+    stamps[row.id].textContent = value?.status === 'timed' ? time(value.start_ms) + '〜' + time(value.end_ms) : names[value?.status] ?? '—';
+    buttons[row.id].setAttribute('aria-pressed', String(row === data.rows[selected]));
+    buttons[row.id].closest('tr').dataset.active = String(row === data.rows[selected]);
+  }
+}
+function select(index) {
+  selected = index;
+  const row = data.rows[index];
+  const value = annotations.get(row.id);
+  get('selected').textContent = row.number + '行目　' + row.text;
+  get('start').value = value?.start_ms ?? '';
+  get('end').value = value?.end_ms ?? '';
+  showRows();
+  notice(value ? '記録済み · ' + names[value.status] : '');
+}
+function record(status, start_ms = null, end_ms = null) {
+  const row = data.rows[selected];
+  annotations.set(row.id, {id: row.id, status, start_ms, end_ms});
+  unsaved = true;
+  select(selected);
+}
+for (const [index, row] of data.rows.entries()) {
+  const tr = get('rows').insertRow();
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = row.number;
+  button.setAttribute('aria-label', row.number + '行目を選ぶ');
+  button.addEventListener('click', () => select(index));
+  tr.insertCell().append(button);
+  tr.insertCell().textContent = row.text;
+  stamps[row.id] = tr.insertCell();
+  buttons[row.id] = button;
+}
+media.addEventListener('timeupdate', clock);
+media.addEventListener('loadedmetadata', () => { media.playbackRate = Number(get('rate').value); clock(); });
+media.addEventListener('error', () => notice('素材を再生できません。', true, get('media-status')));
+get('rate').addEventListener('change', () => { media.playbackRate = Number(get('rate').value); });
+get('media-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const request = ++selection;
+  notice('素材を確認しています。', false, get('media-status'));
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    const sha = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    if (request !== selection) return;
+    if (sha !== data.media_sha256) {
+      notice('別のファイルです。対象の素材を選び直してください。', true, get('media-status'));
+      return;
+    }
+    if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+    mediaUrl = URL.createObjectURL(file);
+    media.src = mediaUrl;
+    notice('対象の素材を読み込みました。', false, get('media-status'));
+  } catch {
+    if (request === selection) notice('素材を確認できませんでした。EdgeまたはChromeで開いてください。', true, get('media-status'));
+  }
+});
+for (const button of document.querySelectorAll('[data-step]')) {
+  button.addEventListener('click', () => {
+    media.pause(); media.currentTime = Math.max(0, Math.min(media.duration, media.currentTime + Number(button.dataset.step) / 1000));
+  });
+}
+for (const edge of ['start','end']) {
+  get('capture-' + edge).addEventListener('click', () => {
+    media.pause(); get(edge).value = Math.round(media.currentTime * 1000);
+  });
+}
+get('save').addEventListener('click', () => {
+  const start = get('start').valueAsNumber, end = get('end').valueAsNumber;
+  if (!valid(start, end)) { notice('素材の範囲内で、開始より後の終了時刻を入力してください。', true); return; }
+  record('timed', start, end);
+});
+get('unsung').addEventListener('click', () => record('unsung'));
+get('unclear').addEventListener('click', () => record('unclear'));
+get('clear').addEventListener('click', () => { unsaved = annotations.delete(data.rows[selected].id) || unsaved; select(selected); });
+get('next').addEventListener('click', () => {
+  const missing = data.rows.map((row, i) => annotations.has(row.id) ? -1 : i).filter(i => i >= 0);
+  if (!missing.length) { notice('全行を記録しました。'); return; }
+  select(missing.find(i => i > selected) ?? missing[0]);
+  buttons[data.rows[selected].id].scrollIntoView({block: 'nearest'});
+});
+get('export').addEventListener('click', () => {
+  const {schema_version, media_sha256, lyrics_sha256, duration_ms} = data;
+  const value = {schema_version, media_sha256, lyrics_sha256, duration_ms, rows: [...annotations.values()]};
+  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], {type: 'application/json'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = data.title + '-reference.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  unsaved = false;
+  notice('注釈JSONを書き出しました。');
+});
+get('import').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    if (unsaved && !confirm('書き出していない記録を置き換えますか？')) return;
+    const value = JSON.parse(await file.text());
+    for (const field of ['schema_version', 'media_sha256', 'lyrics_sha256', 'duration_ms']) {
+      if (value[field] !== data[field]) throw new Error();
+    }
+    const replaced = new Map();
+    for (const row of value.rows) {
+      if (!Object.hasOwn(buttons, row.id) || replaced.has(row.id) || !Object.hasOwn(names, row.status) ||
+          (row.status === 'timed' ? !valid(row.start_ms, row.end_ms) : row.start_ms !== null || row.end_ms !== null)) throw new Error();
+      replaced.set(row.id, row);
+    }
+    annotations = replaced;
+    unsaved = false;
+    select(selected);
+    notice('注釈JSONを読み込みました。');
+  } catch {
+    notice('この曲の注釈JSONを読み込めませんでした。', true);
+  } finally { event.target.value = ''; }
+});
+window.addEventListener('beforeunload', event => { if (unsaved) { event.preventDefault(); event.returnValue = ''; } });
+select(0);
+clock();
+</script>
+</body>
+</html>
