@@ -140,9 +140,13 @@ def srt_time(ms):
     return f"{hour:02}:{minute:02}:{second:02},{milli:03}"
 
 
+def lyric_lines(text):
+    return [(n, line) for n, line in enumerate(text.splitlines(), 1)
+            if line.strip() and not TAG.fullmatch(line.strip())]
+
+
 def align_lyrics(text, items, duration_ms):
-    lines = [(n, line) for n, line in enumerate(text.splitlines(), 1)
-             if line.strip() and not TAG.fullmatch(line.strip())]
+    lines = lyric_lines(text)
     lexicon = dictionary.Dictionary()
     tokenizer = lexicon.tokenizer()
     cues = aligned_lines(lines, items, lambda line: reading(line, tokenizer), duration_ms)

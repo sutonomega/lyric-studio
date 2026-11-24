@@ -2,6 +2,7 @@
 
 import argparse
 from collections import Counter
+import hashlib
 from importlib.metadata import version
 import json
 import os
@@ -12,6 +13,7 @@ from tempfile import TemporaryDirectory
 from time import perf_counter
 import wave
 
+import ctranslate2
 from faster_whisper import WhisperModel
 import numpy as np
 
@@ -35,7 +37,9 @@ def decode(ffmpeg, incoming, outgoing, rate, channels, codec):
     ], check=True)
 
 
-def transcribe(model, samples):
+def transcribe(model, samples, seed=None):
+    if seed is not None:
+        ctranslate2.set_random_seed(seed)
     segments, _ = model.transcribe(
         samples, language="ja", task="transcribe", beam_size=5,
         word_timestamps=True, vad_filter=False,
@@ -92,6 +96,11 @@ def write_results(output, lines, report):
     (output / "sync.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def sha256_file(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def run(args, ffmpeg, directory):
     raw = directory / "original.wav"
     decode(ffmpeg, args.media, raw, 16000, 1, "pcm_s16le")
@@ -106,7 +115,7 @@ def run(args, ffmpeg, directory):
     compute_type = "int8_float16" if args.device == "cuda" else "int8"
     small = load_model(args.small_model, args.device, compute_type)
     start = perf_counter()
-    items = {"original": transcribe(small, original)}
+    items = {"original": transcribe(small, original, args.seed)}
     times = {"original_asr": round(perf_counter() - start, 3)}
     baseline = align_lyrics(text, items["original"], duration)
     if not baseline:
@@ -114,8 +123,9 @@ def run(args, ffmpeg, directory):
     report = {
         "schema_version": 1, "profile": "refined" if args.turbo_model else "baseline",
         "duration_ms": duration,
+        "media_sha256": sha256_file(args.media), "lyrics_sha256": sha256_file(args.lyrics),
         "asr": {"device": args.device, "compute_type": compute_type, "threads": 8,
-                "beam_size": 5, "language": "ja", "vad": False,
+                "beam_size": 5, "language": "ja", "vad": False, "seed": args.seed,
                 "model_revisions": {"small": args.small_model.name},
                 "faster_whisper": version("faster-whisper"),
                 "ctranslate2": version("ctranslate2")},
@@ -132,12 +142,12 @@ def run(args, ffmpeg, directory):
     if abs(len(vocals) - len(original)) > 320:
         raise ValueError("vocal stem duration must match the original media")
     start = perf_counter()
-    items["vocals"] = transcribe(small, vocals)
+    items["vocals"] = transcribe(small, vocals, args.seed)
     times["vocals_asr"] = round(perf_counter() - start, 3)
     del small
     turbo = load_model(args.turbo_model, args.device, compute_type)
     start = perf_counter()
-    items["turbo"] = transcribe(turbo, original)
+    items["turbo"] = transcribe(turbo, original, args.seed)
     times["turbo_asr"] = round(perf_counter() - start, 3)
     del turbo
     alternate = align_lyrics(text, items["vocals"], duration)
@@ -159,8 +169,11 @@ def main():
     stems.add_argument("--demucs-python", type=Path, help="Python with Demucs and cached htdemucs")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="executable or PATH command")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="ASR device")
+    parser.add_argument("--seed", type=int, help="fixed ASR sampling seed for evaluation")
     parser.add_argument("--output-dir", type=Path, required=True, help="new output directory")
     args = parser.parse_args()
+    if args.seed is not None and not 0 <= args.seed <= 4294967295:
+        parser.error("--seed must be between 0 and 4294967295")
     if bool(args.turbo_model) != bool(args.vocals or args.demucs_python):
         parser.error("refinement requires both --turbo-model and either --vocals or --demucs-python")
     for path in (args.media, args.lyrics, args.vocals, args.demucs_python):
