@@ -18,6 +18,10 @@ class SyncPilotTests(unittest.TestCase):
         self.assertEqual(lyric_lines("lyRIcs：\n歌い出す"), [(2, "歌い出す")])
         self.assertEqual(lyric_lines("行内の Lyrics: は歌詞です"), [(1, "行内の Lyrics: は歌詞です")])
 
+    def test_last_and_final_chorus_are_structure_tags(self):
+        self.assertEqual(lyric_lines("[Last Chorus]\n歌う\n[FINAL CHORUS 2]\n[大切な歌詞]"),
+                         [(2, "歌う"), (4, "[大切な歌詞]")])
+
     def test_alignment_keeps_source_text_and_repetition(self):
         text = "[Verse 1]\r\n \r\n 世界へ \r\n月\r\n[Chorus]\r\n世界へ\r\n……"
         items = [

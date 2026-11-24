@@ -90,3 +90,14 @@ GPU指定時は認識だけが CUDA の `int8_float16` で動く。ボーカル�
 ~~~
 
 注釈の途中確認には `--allow-partial` を付ける。記録済みの行だけを比較し、部分結果は固定評価セットの集計対象から除く。
+
+### 正解注釈を作らない自動チェック
+
+自動生成した同期JSONを、生成で使っていないローカル認識モデルとボーカルの音量で検査できる。元音声を別モデルで認識して前後の歌詞と照合し、候補との開始・終了の差、歌詞の対応率、分離ボーカルの音量を行ごとに評価する。両端の差が500ms以内、別モデルの文字対応率が65%以上、区間内のボーカル活動率が35%以上なら自動チェックで「裏付けあり」とする。元の時刻を前後2秒ずらした場合の一致数も併記する。
+
+~~~powershell
+$checkModel = & .venv/Scripts/python.exe -c 'from faster_whisper.utils import download_model; print(download_model("medium"))'
+& .venv/Scripts/python.exe -m lyric_studio.auto_evaluation local-data/refined/sync.json '録音.mp3' '歌詞.txt' 'ボーカル.wav' $checkModel local-data/auto-audit.json --device cuda
+~~~
+
+自動チェックの一致指標は、音声認識間の一致と音量の裏付けを示す。正解時刻に対する精度を計測するときは、注釈を使った採点結果と区別する。 [確認用モデル](https://huggingface.co/Systran/faster-whisper-medium)

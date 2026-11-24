@@ -5,7 +5,7 @@ import unicodedata
 from sudachipy import dictionary
 
 
-TAG = re.compile(r"\[\s*(?:verse|pre-chorus|chorus|bridge|outro)(?:\s+\d+)?\s*\]", re.I)
+TAG = re.compile(r"\[\s*(?:verse|pre-chorus|(?:(?:last|final)\s+)?chorus|bridge|outro)(?:\s+\d+)?\s*\]", re.I)
 LYRICS_HEADER = re.compile(r"\s*Lyrics\s*[:：]\s*", re.I)
 
 

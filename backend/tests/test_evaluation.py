@@ -1,6 +1,9 @@
 import copy
 import unittest
 
+import numpy as np
+
+from lyric_studio.auto_evaluation import check_cues, foreground_activity, shifted_timing_control
 from lyric_studio.evaluation import compare_profiles, score, summarize
 
 
@@ -10,6 +13,24 @@ def cue(number, start, end, status):
 
 def label(number, start, end, status):
     return cue(number, start, end, status)
+
+
+class AutomaticAuditTests(unittest.TestCase):
+    def test_checks_alignment_and_voice_activity_with_shift_control(self):
+        primary = [dict(cue(1, 3000, 5200, "candidate"), text="そら"),
+                   dict(cue(2, 6500, 8000, "review"), text="うみ"),
+                   dict(cue(3, None, None, "unplaced"), text="やま")]
+        other = [dict(row, match_coverage=.9) for row in primary]
+        samples = np.zeros(16000 * 12, dtype=np.float32)
+        samples[3000 * 16:5200 * 16] = .1
+        report = check_cues(primary, other, foreground_activity(samples), 12000)
+        self.assertEqual(report["counts"], {"supported": 1, "review": 1, "unplaced": 1})
+        self.assertEqual(report["rows"][1]["reasons"], ["low_vocal_activity"])
+        control = shifted_timing_control(report["rows"], 12000)
+        self.assertEqual((control["unshifted_agreement"], control["delayed_agreement"]), (2, 0))
+        other[0].update(start_ms=3800, end_ms=5700)
+        self.assertIn("boundary_disagreement", check_cues(
+            primary, other, foreground_activity(samples), 12000)["rows"][0]["reasons"])
 
 
 class FixedEvaluationTests(unittest.TestCase):
