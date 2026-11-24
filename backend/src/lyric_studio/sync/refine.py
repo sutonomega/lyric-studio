@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
+from statistics import median
 
 import numpy as np
 from sudachipy import dictionary
@@ -233,6 +234,82 @@ def envelope_bands(audio, lo, hi):
     }
 
 
+def corroborated_gap(options, bands, lo, hi):
+    """Use a single bounded phrase when three recognitions agree and have no distant rival."""
+    if len(options) != 3 or any(not run or run[0].score < .86 for run in options):
+        return None
+    best = [run[0] for run in options]
+    for edge in ("start_ms", "end_ms"):
+        times = [getattr(candidate, edge) for candidate in best]
+        if max(times) - min(times) > 400:
+            return None
+    for run in options:
+        primary = run[0]
+        if any(candidate.score >= primary.score - .03 and max(
+            abs(candidate.start_ms - primary.start_ms), abs(candidate.end_ms - primary.end_ms)
+        ) > 700 for candidate in run[1:]):
+            return None
+    start = max(lo, round(median(candidate.start_ms for candidate in best)))
+    end = min(hi, round(median(candidate.end_ms for candidate in best)))
+    if end - start < MIN_DURATION:
+        return None
+    for db in ("-18", "-22"):
+        active = sum(max(0, min(end, b) - max(start, a)) for a, b in bands[db])
+        if active / (end - start) < .70:
+            return None
+    return {"start_ms": start, "end_ms": end, "method": "corroborated_local_lyric_match",
+            "source_matches": [asdict(candidate) for candidate in best]}
+
+
+def extend_vocal_tails(cues, audio, duration):
+    """Extend a flagged end to nearby silence only if both level thresholds agree."""
+    frame_ms = 20
+    samples_per_frame = 320
+    frames = len(audio) // samples_per_frame
+    if frames < 19:
+        return []
+    samples = audio[:frames * samples_per_frame].reshape(frames, samples_per_frame)
+    rms = np.convolve(np.sqrt(np.mean(samples ** 2, axis=1)), np.full(5, .2), mode="same")
+    changes = []
+    next_start = duration
+    for cue in reversed(cues):
+        start, end = cue["start_ms"], cue["end_ms"]
+        if start is None:
+            continue
+        gap = next_start - end
+        next_start = start
+        if cue["status"] != "review" or gap < 350:
+            continue
+        pivot = (end + frame_ms - 1) // frame_ms
+        before = rms[max(start // frame_ms, pivot - 60):pivot]
+        if len(before) < 10:
+            continue
+        level = float(np.quantile(before, .90))
+        if level < .004:
+            continue
+        last_frame = min(len(rms) - 9, (end + min(gap, 900)) // frame_ms)
+        quiet_frames = []
+        for db in (-18, -22):
+            threshold = max(.001, level * 10 ** (db / 20))
+            around = rms[max(0, pivot - 5):pivot + 5]
+            if np.mean(around >= threshold) < .80:
+                break
+            quiet = next((frame for frame in range(pivot, last_frame + 1)
+                          if np.all(rms[frame:frame + 9] < threshold)), None)
+            if quiet is None:
+                break
+            quiet_frames.append(quiet)
+        if len(quiet_frames) != 2 or abs(quiet_frames[0] - quiet_frames[1]) * frame_ms > 120:
+            continue
+        tail = round(median(quiet_frames) * frame_ms)
+        if end + 120 <= tail <= end + gap:
+            cue["end_ms"] = tail
+            cue["reasons"].append("vocal_tail_before_pause")
+            changes.append({"id": cue["id"], "method": "vocal_tail_before_pause",
+                            "previous_end_ms": end, "end_ms": tail})
+    return list(reversed(changes))
+
+
 def refine_cues(baseline, model_items, vocals_cues, audio, duration):
     """Fill supported gaps and propose boundary corrections without reference annotations."""
     cues = [dict(row, reasons=list(row["reasons"])) for row in baseline]
@@ -250,7 +327,12 @@ def refine_cues(baseline, model_items, vocals_cues, audio, duration):
             words = search([("original", None, model_items["original"])], row["text"], tokenizer, lo, hi)
             inputs.append({"anchor_range_ms": [lo, hi], "global_best": asdict(words[0]) if words else None})
         bands = envelope_bands(audio, max(0, lo - EDGE_SLACK_MS), min(duration, hi + EDGE_SLACK_MS))
-        for cue, estimate in zip(cues[first:after], choose_recovery(inputs, bands), strict=True):
+        estimates = choose_recovery(inputs, bands)
+        if after - first == 1 and estimates[0] is None:
+            options = [search([(name, None, items)], cues[first]["text"], tokenizer, lo, hi)
+                       for name, items in model_items.items()]
+            estimates[0] = corroborated_gap(options, bands, lo, hi)
+        for cue, estimate in zip(cues[first:after], estimates, strict=True):
             if estimate:
                 cue.update(start_ms=estimate["start_ms"], end_ms=estimate["end_ms"], status="review")
                 cue["reasons"].append("experimental_recovery_requires_review")
@@ -278,4 +360,4 @@ def refine_cues(baseline, model_items, vocals_cues, audio, duration):
     for number, change in changes.items():
         cues[number - 1].update(change)
         cues[number - 1]["reasons"].append("experimental_boundary_requires_review")
-    return cues, evidence + bridges + onsets
+    return cues, evidence + bridges + onsets + extend_vocal_tails(cues, audio, duration)

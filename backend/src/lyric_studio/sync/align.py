@@ -30,6 +30,7 @@ def reading(text, tokenizer):
         token.reading_form() if not token.is_oov() and token.reading_form()
         else token.surface()
         for token in tokenizer.tokenize(unicodedata.normalize("NFKC", text).strip())
+        if normalized(token.surface())
     ))
 
 

@@ -3,13 +3,40 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import numpy as np
+from sudachipy import dictionary
 
 from lyric_studio.cli import write_results
-from lyric_studio.sync.align import align_lyrics, lyric_lines
-from lyric_studio.sync.refine import choose_boundary, choose_recovery
+from lyric_studio.sync.align import align_lyrics, lyric_lines, reading
+from lyric_studio.sync.refine import Candidate, choose_boundary, choose_recovery, corroborated_gap, extend_vocal_tails
 
 
 class SyncPilotTests(unittest.TestCase):
+    def test_reading_ignores_non_lyric_symbols(self):
+        lexicon = dictionary.Dictionary()
+        tokenizer = lexicon.tokenizer()
+        self.assertEqual(reading("世界、 へ！", tokenizer), reading("世界へ", tokenizer))
+
+    def test_gap_recovery_rejects_tied_distant_phrase(self):
+        first = Candidate(1000, 2800, .96, "original", None)
+        evidence = [[first], [Candidate(1030, 2900, .96, "vocals", None)],
+                    [Candidate(980, 2860, .94, "turbo", None)]]
+        bands = {db: [(900, 3100)] for db in ("-18", "-22")}
+        result = corroborated_gap(evidence, bands, 1020, 3000)
+        self.assertEqual((result["start_ms"], result["end_ms"]), (1020, 2860))
+        evidence[0].append(Candidate(1000, 4200, .95, "original", None))
+        self.assertIsNone(corroborated_gap(evidence, bands, 1020, 3000))
+
+    def test_vocal_tail_extension_requires_a_pause(self):
+        cue = {"id": "line-1", "status": "review", "start_ms": 400, "end_ms": 1000, "reasons": []}
+        following = {"id": "line-2", "status": "candidate", "start_ms": 1900, "end_ms": 2900, "reasons": []}
+        audio = np.zeros(16000 * 3, dtype=np.float32)
+        audio[400 * 16:1350 * 16] = .1
+        changes = extend_vocal_tails([cue.copy(), following.copy()], audio, 3000)
+        self.assertEqual(len(changes), 1)
+        self.assertTrue(1300 <= changes[0]["end_ms"] < 1500)
+        audio[400 * 16:] = .1
+        self.assertEqual(extend_vocal_tails([cue, following], audio, 3000), [])
+
     def test_lyrics_header_keeps_source_line_ids(self):
         text = "Title: Example\nStyle: Example\n\n Lyrics: \n[Verse]\n 空へ \nLyrics: という文字\n"
         self.assertEqual(lyric_lines(text), [(6, " 空へ "), (7, "Lyrics: という文字")])
