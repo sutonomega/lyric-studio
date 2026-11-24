@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type Cue = {
   id: string;
@@ -60,7 +61,8 @@ function timestamp(ms: number) {
   return minutes + ':' + seconds + '.' + String(ms % 1000).padStart(3, '0');
 }
 
-export function SyncPanel({ media, lyrics, revision, hasLines, applied, onApply, onSeek }: {
+export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied, onApply, onSeek }: {
+  controls: HTMLDivElement | null;
   media?: File;
   lyrics: string;
   revision: number;
@@ -157,15 +159,23 @@ export function SyncPanel({ media, lyrics, revision, hasLines, applied, onApply,
   const stale = startedRevision !== revision;
   const preparing = starting && !activeId;
   const cues = preparing ? undefined : job?.cues;
+  const missingInput = config?.available && (!media || !hasLines);
   return <section className="sync" aria-labelledby="sync-title">
+    {controls && createPortal(
+      activeId
+        ? <button type="button" onClick={() => void cancel()} disabled={cancelling || job?.state === 'cancelling'}>キャンセル</button>
+        : <button type="button" className="primary" disabled={!config?.available || !media || !hasLines || starting || cancelling}
+            aria-describedby={missingInput ? 'sync-input-hint' : undefined}
+            onClick={() => void start()}>{job ? '再実行' : '同期を開始'}</button>,
+      controls,
+    )}
+    {controls && missingInput && !activeId && createPortal(
+      <span id="sync-input-hint">素材と歌詞を読み込むと開始できます</span>,
+      controls,
+    )}
     <div className="list-head sync-heading">
       <div><h3 id="sync-title">自動同期</h3>
         {config?.available && <p className="filename">{config.profile === 'refined' ? 'ボーカル分離と補正あり' : '原音を使う同期'} · {config.device?.toUpperCase()}</p>}
-      </div>
-      <div className="sync-actions">
-        {activeId ? <button type="button" onClick={() => void cancel()} disabled={cancelling || job?.state === 'cancelling'}>キャンセル</button> :
-          <button type="button" className="primary" disabled={!config?.available || !media || !hasLines || starting || cancelling}
-            onClick={() => void start()}>{job ? '再実行' : '同期を開始'}</button>}
       </div>
     </div>
     {config && !config.available && <p className="sync-note">同期を有効にするには、起動時にローカルモデルを指定してください。</p>}

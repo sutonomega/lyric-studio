@@ -120,6 +120,7 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
   const [applied, setApplied] = useState<{ id: string; revision: number; cues: Cue[] }>();
   const applicable = applied?.revision === revision ? applied : undefined;
   const subtitle = applicable?.cues.find(cue => cue.start_ms !== null && cue.end_ms !== null &&
@@ -260,6 +261,7 @@ function App() {
   return <>
     <header className="topbar">
       <div className="brand"><span className="brand-icon" aria-hidden="true"><i /><i /><i /></span>Lyric Studio</div>
+      <div className="topbar-sync" ref={setSyncControls} />
     </header>
     <main>
       <section className="workspace" aria-labelledby="preview-title">
@@ -311,7 +313,7 @@ function App() {
         {lines.length ? <ol className="lines" aria-label="字幕対象の行">
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
-        <SyncPanel media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
+        <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
           applied={applicable?.id} onApply={(id, cues) => {
             setApplied({ id, revision, cues });
             const start = cues.find(cue => cue.start_ms !== null)?.start_ms;
