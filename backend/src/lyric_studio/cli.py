@@ -28,11 +28,14 @@ def read_pcm(path):
         return np.frombuffer(source.readframes(source.getnframes()), dtype="<i2").astype(np.float32) / 32768
 
 
-def decode(ffmpeg, incoming, outgoing, rate, channels, codec):
+def decode(ffmpeg, incoming, outgoing, rate, channels, codec, input_format=None):
     # Preserve an audio stream's offset from the beginning of the media timeline.
+    source_options = [] if input_format is None else ["-protocol_whitelist", "file", "-f", input_format]
+    if input_format == "mov":
+        source_options.extend(("-enable_drefs", "0"))
     subprocess.run([
         ffmpeg, "-v", "error", "-nostdin", "-copyts", "-start_at_zero",
-        "-i", str(incoming), "-map", "0:a:0", "-vn", "-ac", str(channels),
+        *source_options, "-i", str(incoming), "-map", "0:a:0", "-vn", "-ac", str(channels),
         "-af", f"aresample={rate}:first_pts=0", "-c:a", codec, str(outgoing),
     ], check=True)
 
@@ -66,7 +69,7 @@ def get_vocals(args, ffmpeg, directory):
     if args.vocals:
         return args.vocals, None
     stereo = directory / "mix.wav"
-    decode(ffmpeg, args.media, stereo, 44100, 2, "pcm_f32le")
+    decode(ffmpeg, args.media, stereo, 44100, 2, "pcm_f32le", getattr(args, "input_format", None))
     env = os.environ.copy()
     env.update(HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", OMP_NUM_THREADS="8", MKL_NUM_THREADS="8")
     env["PATH"] = os.pathsep.join((str(Path(ffmpeg).parent), env.get("PATH", "")))
@@ -104,9 +107,17 @@ def sha256_file(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def report_stage(args, stage):
+    progress = getattr(args, "progress_file", None)
+    if progress:
+        with progress.open("a", encoding="ascii") as stream:
+            stream.write(stage + "\n")
+
+
 def run(args, ffmpeg, directory):
+    report_stage(args, "decode")
     raw = directory / "original.wav"
-    decode(ffmpeg, args.media, raw, 16000, 1, "pcm_s16le")
+    decode(ffmpeg, args.media, raw, 16000, 1, "pcm_s16le", getattr(args, "input_format", None))
     original = read_pcm(raw)
     duration = round(len(original) / 16)
     if not duration:
@@ -115,11 +126,13 @@ def run(args, ffmpeg, directory):
     if not text.strip():
         raise ValueError("lyric file is empty")
 
+    report_stage(args, "recognize")
     compute_type = "int8_float16" if args.device == "cuda" else "int8"
     small = load_model(args.small_model, args.device, compute_type)
     start = perf_counter()
     items = {"original": transcribe(small, original, args.seed)}
     times = {"original_asr": round(perf_counter() - start, 3)}
+    report_stage(args, "align")
     baseline = align_lyrics(text, items["original"], duration)
     if not baseline:
         raise ValueError("no usable lyric lines")
@@ -137,6 +150,7 @@ def run(args, ffmpeg, directory):
     if not args.turbo_model:
         return baseline, report
 
+    report_stage(args, "separate")
     vocals_input, separation_time = get_vocals(args, ffmpeg, directory)
     times["separation"] = separation_time
     vocals_file = directory / "vocals.wav"
@@ -145,14 +159,17 @@ def run(args, ffmpeg, directory):
     if abs(len(vocals) - len(original)) > 320:
         raise ValueError("vocal stem duration must match the original media")
     start = perf_counter()
+    report_stage(args, "recognize_vocals")
     items["vocals"] = transcribe(small, vocals, args.seed)
     times["vocals_asr"] = round(perf_counter() - start, 3)
     del small
+    report_stage(args, "recognize_turbo")
     turbo = load_model(args.turbo_model, args.device, compute_type)
     start = perf_counter()
     items["turbo"] = transcribe(turbo, original, args.seed)
     times["turbo_asr"] = round(perf_counter() - start, 3)
     del turbo
+    report_stage(args, "refine")
     alternate = align_lyrics(text, items["vocals"], duration)
     lines, evidence = refine_cues(baseline, items, alternate, vocals, duration)
     report["asr"]["model_revisions"]["turbo"] = args.turbo_model.name
@@ -172,6 +189,8 @@ def main():
     stems.add_argument("--demucs-python", type=Path, help="Python with Demucs and cached htdemucs")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="executable or PATH command")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="ASR device")
+    parser.add_argument("--progress-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--input-format", choices=["mov", "mp3", "wav"], help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, help="fixed ASR sampling seed for evaluation")
     parser.add_argument("--output-dir", type=Path, required=True, help="new output directory")
     args = parser.parse_args()
@@ -199,6 +218,7 @@ def main():
             lines, report = run(args, ffmpeg, workspace)
             results = workspace / "results"
             results.mkdir()
+            report_stage(args, "write")
             write_results(results, lines, report)
             results.rename(target)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:

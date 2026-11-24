@@ -84,6 +84,7 @@ main {
   cursor: inherit;
 }
 .stage {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 220px;
@@ -147,3 +148,44 @@ textarea::placeholder { color: #8b95a5; }
   .stage { min-height: 165px; }
   .lines { max-height: 340px; }
 }
+@media (min-width: 791px) {
+  .workspace { position: sticky; top: 18px; }
+}
+.subtitle-overlay {
+  position: absolute;
+  bottom: 7%;
+  inset-inline: 8%;
+  width: fit-content;
+  max-width: 84%;
+  margin-inline: auto;
+  padding: 3px 11px;
+  color: #fff;
+  background: #0b0e14dd;
+  border-radius: 6px;
+  font-size: clamp(17px, 2.2vw, 32px);
+  font-weight: 700;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.sync { border-top: 1px solid var(--line); }
+.sync-heading { margin: 0; border: 0; min-height: 64px; }
+.sync-actions { display: flex; gap: 8px; }
+.sync-actions button { white-space: nowrap; }
+.sync-note, .job-state, .candidate-summary { padding: 0 17px 12px; }
+.sync-note, .job-state, .candidate-summary p { color: var(--muted); font-size: 13px; }
+.job-state { display: flex; align-items: center; gap: 8px; }
+.job-state progress { width: 82px; height: 8px; accent-color: var(--accent); }
+.sync .notice { padding: 0 17px 12px; }
+.candidate-summary h4 { margin: 0 0 3px; }
+.candidate-summary button, .candidate-summary p + p { margin-top: 8px; }
+.candidates { border-top: 1px solid var(--line); }
+.cue-info { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+.cue-info button { min-height: 25px; padding: 0 5px; font-variant-numeric: tabular-nums; }
+.cue-status { border-radius: 4px; padding: 1px 5px; font-size: 12px; color: #bbd8ff; background: #273851; }
+.cue-status.review { color: #ffe0a7; background: #513f25; }
+.cue-status.unplaced { color: #e1e4eb; background: #3b414e; }
+.candidates ul { margin: 6px 0 0; padding-left: 15px; color: var(--muted); font-size: 12px; }
+.candidates ul li { display: list-item; padding: 0; border: 0; counter-increment: none; }
+.candidates ul li::before { content: none; }
