@@ -10,7 +10,7 @@ from statistics import mean, median
 import subprocess
 
 from .cli import sha256_file
-from .sync.align import lyric_lines
+from .sync.align import lyric_header_lines, lyric_lines
 
 
 TOLERANCE_MS = 500
@@ -37,14 +37,14 @@ def prepare(media, lyrics, ffprobe, destination):
     seconds = float(metadata["format"]["duration"])
     if not isfinite(seconds) or seconds <= 0:
         raise ValueError("media duration is unavailable")
-    rows = [{"id": f"line-{line}", "number": n, "text": text} for n, (line, text) in enumerate(
-        lyric_lines(lyrics.read_text(encoding="utf-8-sig")), 1
-    )]
+    source = lyrics.read_text(encoding="utf-8-sig")
+    rows = [{"id": f"line-{line}", "number": n, "text": text} for n, (line, text) in enumerate(lyric_lines(source), 1)]
     if not rows:
         raise ValueError("lyrics have no usable lines")
     dataset = {"schema_version": 2, "title": lyrics.stem, "media_name": media.name,
                "media_sha256": sha256_file(media), "lyrics_sha256": sha256_file(lyrics),
-               "duration_ms": round(seconds * 1000), "rows": rows}
+               "duration_ms": round(seconds * 1000), "lyric_header_lines": lyric_header_lines(source.splitlines()),
+               "rows": rows}
     template = files("lyric_studio").joinpath("reference.html").read_text(encoding="utf-8")
     payload = json.dumps(dataset, ensure_ascii=False).replace("<", "\\u003c")
     write_new(destination, template.replace("__DATASET__", payload))

@@ -6,6 +6,7 @@ from sudachipy import dictionary
 
 
 TAG = re.compile(r"\[\s*(?:verse|pre-chorus|chorus|bridge|outro)(?:\s+\d+)?\s*\]", re.I)
+LYRICS_HEADER = re.compile(r"\s*Lyrics\s*[:：]\s*", re.I)
 
 
 @dataclass(frozen=True)
@@ -140,8 +141,14 @@ def srt_time(ms):
     return f"{hour:02}:{minute:02}:{second:02},{milli:03}"
 
 
+def lyric_header_lines(lines):
+    return next((n for n, line in enumerate(lines, 1) if LYRICS_HEADER.fullmatch(line)), 0)
+
+
 def lyric_lines(text):
-    return [(n, line) for n, line in enumerate(text.splitlines(), 1)
+    lines = text.splitlines()
+    prefix = lyric_header_lines(lines)
+    return [(n, line) for n, line in enumerate(lines[prefix:], prefix + 1)
             if line.strip() and not TAG.fullmatch(line.strip())]
 
 

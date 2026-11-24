@@ -5,11 +5,19 @@ import unittest
 import numpy as np
 
 from lyric_studio.cli import write_results
-from lyric_studio.sync.align import align_lyrics
+from lyric_studio.sync.align import align_lyrics, lyric_lines
 from lyric_studio.sync.refine import choose_boundary, choose_recovery
 
 
 class SyncPilotTests(unittest.TestCase):
+    def test_lyrics_header_keeps_source_line_ids(self):
+        text = "Title: Example\nStyle: Example\n\n Lyrics: \n[Verse]\n 空へ \nLyrics: という文字\n"
+        self.assertEqual(lyric_lines(text), [(6, " 空へ "), (7, "Lyrics: という文字")])
+        items = [{"text": "そらへ", "start_ms": 1000, "end_ms": 2000, "timing": "word"}]
+        self.assertEqual([cue["id"] for cue in align_lyrics(text, items, 3000)], ["line-6", "line-7"])
+        self.assertEqual(lyric_lines("lyRIcs：\n歌い出す"), [(2, "歌い出す")])
+        self.assertEqual(lyric_lines("行内の Lyrics: は歌詞です"), [(1, "行内の Lyrics: は歌詞です")])
+
     def test_alignment_keeps_source_text_and_repetition(self):
         text = "[Verse 1]\r\n \r\n 世界へ \r\n月\r\n[Chorus]\r\n世界へ\r\n……"
         items = [

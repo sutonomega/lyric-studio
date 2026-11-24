@@ -214,15 +214,21 @@ get('import').addEventListener('change', async event => {
       if (value[field] !== data[field]) throw new Error();
     }
     const replaced = new Map();
+    let skipped = 0;
     for (const row of value.rows) {
+      const oldLine = /^line-([1-9]\d*)$/.exec(row.id);
+      if (oldLine && Number(oldLine[1]) <= data.lyric_header_lines) {
+        skipped++;
+        continue;
+      }
       if (!Object.hasOwn(buttons, row.id) || replaced.has(row.id) || !Object.hasOwn(names, row.status) ||
           (row.status === 'timed' ? !valid(row.start_ms, row.end_ms) : row.start_ms !== null || row.end_ms !== null)) throw new Error();
       replaced.set(row.id, row);
     }
     annotations = replaced;
-    unsaved = false;
+    unsaved = skipped > 0;
     select(selected);
-    notice('注釈JSONを読み込みました。');
+    notice(skipped ? '歌詞行の注釈を読み込みました。ヘッダーの記録 ' + skipped + ' 件を除外しました。' : '注釈JSONを読み込みました。');
   } catch {
     notice('この曲の注釈JSONを読み込めませんでした。', true);
   } finally { event.target.value = ''; }

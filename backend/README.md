@@ -74,6 +74,8 @@ GPU指定時は認識だけが CUDA の `int8_float16` で動く。ボーカル�
 
 ブラウザでシートと対象素材を開いて全行に時刻・歌唱なし・判定保留のいずれかを記録する。歌われない構成指示が行として残っている場合は「歌唱なし」とする。注釈JSONは途中でも書き出し・再読込できる。入力のSHA-256が一致した全行の注釈を採点する。
 
+歌詞ファイルに単独行の `Lyrics:` がある場合は、その次の行から同期・注釈の対象にする。元のファイルの行IDを保持するため、同じ素材の旧シートから書き出した注釈を再読み込みすると、本文の記録を引き継ぎ、ヘッダーの記録を除外する。
+
 ~~~powershell
 & .venv/Scripts/python.exe -m lyric_studio.evaluation score local-data/baseline/sync.json local-data/reference.json local-data/score.json
 & .venv/Scripts/python.exe -m lyric_studio.evaluation summarize local-data/cohort.json local-data/track-a-score.json local-data/track-b-score.json
