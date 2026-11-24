@@ -17,6 +17,7 @@ import ctranslate2
 from faster_whisper import WhisperModel
 import numpy as np
 
+from .media import decode
 from .sync.align import align_lyrics, srt_time
 from .sync.refine import refine_cues
 
@@ -26,18 +27,6 @@ def read_pcm(path):
         if (source.getframerate(), source.getnchannels(), source.getsampwidth()) != (16000, 1, 2):
             raise ValueError("expected 16 kHz mono 16-bit PCM WAV")
         return np.frombuffer(source.readframes(source.getnframes()), dtype="<i2").astype(np.float32) / 32768
-
-
-def decode(ffmpeg, incoming, outgoing, rate, channels, codec, input_format=None):
-    # Preserve an audio stream's offset from the beginning of the media timeline.
-    source_options = [] if input_format is None else ["-protocol_whitelist", "file", "-f", input_format]
-    if input_format == "mov":
-        source_options.extend(("-enable_drefs", "0"))
-    subprocess.run([
-        ffmpeg, "-v", "error", "-nostdin", "-copyts", "-start_at_zero",
-        *source_options, "-i", str(incoming), "-map", "0:a:0", "-vn", "-ac", str(channels),
-        "-af", f"aresample={rate}:first_pts=0", "-c:a", codec, str(outgoing),
-    ], check=True)
 
 
 def transcribe(model, samples, seed=None):

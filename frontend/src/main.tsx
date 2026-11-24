@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SyncPanel, type Cue } from './SyncPanel';
+import { Timeline, type WaveformData } from './Timeline';
 import './studio.css';
 
 type Notice = { text: string; error?: boolean };
-type Material = { file: File; url: string; video: boolean };
+type Material = { file: File; url: string; video: boolean; waveform: WaveformData | null };
 type Artwork = { name: string; url: string };
 type CapturableVideo = HTMLVideoElement & { captureStream?: () => MediaStream };
 type Lyrics = { text: string; lines: [number, string][] };
@@ -158,14 +159,14 @@ function App() {
     let accepted = false;
     setMediaNotice({ text: '素材を確認中…' });
     try {
-      await post('media/' + kind, file, request.signal);
+      const result = await post<{ waveform: WaveformData | null }>('media/' + kind, file, request.signal);
       await checkPlayback(url, video, request.signal);
       request.signal.throwIfAborted();
       player.current?.pause();
       setPlaying(false);
       setPosition(0);
       setDuration(0);
-      setMaterial({ file, video, url });
+      setMaterial({ file, video, url, waveform: result.waveform });
       markEdited();
       setMediaNotice(undefined);
       accepted = true;
@@ -264,42 +265,45 @@ function App() {
       <div className="topbar-sync" ref={setSyncControls} />
     </header>
     <main>
-      <section className="workspace" aria-labelledby="preview-title">
-        <div className="section-head">
-          <div>
-            <h1 id="preview-title">プレビュー</h1>
-            <p className="filename">{material?.file.name ?? '素材を選択してください'}</p>
+      <div className="preview-column">
+        <section className="workspace" aria-labelledby="preview-title">
+          <div className="section-head">
+            <div>
+              <h1 id="preview-title">プレビュー</h1>
+              <p className="filename">{material?.file.name ?? '素材を選択してください'}</p>
+            </div>
+            <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
           </div>
-          <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
-        </div>
-        <div className="stage">
-          {material?.video ? <video key={material.url} {...mediaProps} playsInline /> : <>
-            {material && <audio key={material.url} {...mediaProps} />}
-            {artwork ? <img src={artwork.url} alt={artwork.name} /> :
-              <div className="stage-empty">
-                <svg viewBox="0 0 44 38" fill="none" aria-hidden="true">
-                  <rect x="2" y="2" width="40" height="34" rx="5" />
-                  <path d="m5 30 11-12 8 9 6-7 9 10M31 12h.01" />
-                </svg>
-                <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
-              </div>}
-          </>}
-          {subtitle && <p className="subtitle-overlay">{subtitle.text}</p>}
-        </div>
-        <div className="transport">
-          <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
-          <span className="clock">{timestamp(position)}</span>
-          <input aria-label="再生位置" type="range" min="0" max={seekable ? duration : 1} step="0.001"
-            value={position} disabled={!seekable} onChange={(event) => seek(event.currentTarget.valueAsNumber)} />
-          <span className="clock">{timestamp(seekable ? duration : 0)}</span>
-        </div>
-        <Status notice={mediaNotice} />
-        <div className="artwork">
-          <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.name ?? 'PNG・JPEG'}</p></div>
-          <FileChoice id="image-file" label="画像を選ぶ" accept=".png,.jpg,.jpeg" select={chooseImage} disabled={material?.video} />
-        </div>
-        {!material?.video && <Status notice={imageNotice} />}
-      </section>
+          <div className="stage">
+            {material?.video ? <video key={material.url} {...mediaProps} playsInline /> : <>
+              {material && <audio key={material.url} {...mediaProps} />}
+              {artwork ? <img src={artwork.url} alt={artwork.name} /> :
+                <div className="stage-empty">
+                  <svg viewBox="0 0 44 38" fill="none" aria-hidden="true">
+                    <rect x="2" y="2" width="40" height="34" rx="5" />
+                    <path d="m5 30 11-12 8 9 6-7 9 10M31 12h.01" />
+                  </svg>
+                  <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
+                </div>}
+            </>}
+            {subtitle && <p className="subtitle-overlay">{subtitle.text}</p>}
+          </div>
+          <div className="transport">
+            <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
+            <span className="clock">{timestamp(position)}</span>
+            <input aria-label="再生位置" type="range" min="0" max={seekable ? duration : 1} step="0.001"
+              value={position} disabled={!seekable} onChange={(event) => seek(event.currentTarget.valueAsNumber)} />
+            <span className="clock">{timestamp(seekable ? duration : 0)}</span>
+            {seekable && <a className="timeline-link" href="#timeline-title">タイムライン</a>}
+          </div>
+          <Status notice={mediaNotice} />
+          <div className="artwork">
+            <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.name ?? 'PNG・JPEG'}</p></div>
+            <FileChoice id="image-file" label="画像を選ぶ" accept=".png,.jpg,.jpeg" select={chooseImage} disabled={material?.video} />
+          </div>
+          {!material?.video && <Status notice={imageNotice} />}
+        </section>
+      </div>
       <section className="lyric-panel" aria-labelledby="lyrics-title">
         <div className="section-head">
           <h2 id="lyrics-title">歌詞</h2>
@@ -314,12 +318,18 @@ function App() {
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
         <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
-          applied={applicable?.id} onApply={(id, cues) => {
+          applied={applicable} onApply={(id, cues) => {
             setApplied({ id, revision, cues });
             const start = cues.find(cue => cue.start_ms !== null)?.start_ms;
             if (start != null) seek(start / 1000);
           }} onSeek={seek} />
       </section>
+      <Timeline key={material?.url} duration={duration} position={position} waveform={material?.waveform}
+        cues={applicable?.cues ?? []} onSeek={seek} onEdit={(id, edge, ms) =>
+          setApplied(previous => previous?.revision === revision ? {
+            ...previous, cues: previous.cues.map(cue => cue.id === id ? { ...cue, [edge]: ms } : cue),
+          } : previous)
+        } />
     </main>
   </>;
 }

@@ -67,7 +67,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   lyrics: string;
   revision: number;
   hasLines: boolean;
-  applied?: string;
+  applied?: { id: string; cues: Cue[] };
   onApply: (id: string, cues: Cue[]) => void;
   onSeek: (seconds: number) => void;
 }) {
@@ -158,7 +158,8 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
 
   const stale = startedRevision !== revision;
   const preparing = starting && !activeId;
-  const cues = preparing ? undefined : job?.cues;
+  const appliedHere = applied && applied.id === job?.id;
+  const cues = preparing ? undefined : appliedHere ? applied.cues : job?.cues;
   const inputHint = config?.available
     ? (!media || !hasLines) && '素材と歌詞を読み込むと開始できます'
     : config && '同期を有効にするには、起動時にローカルモデルを指定してください。';
@@ -189,8 +190,8 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
         <h4>同期候補</h4>
         <p>{cues.filter(cue => cue.status === 'candidate').length} 候補 ／ {cues.filter(cue => cue.status === 'review').length} 要確認 ／ {cues.filter(cue => cue.status === 'unplaced').length} 未配置</p>
         {stale ? <p role="status">同期開始後に素材または歌詞が変わりました。現在の入力で再実行してください。</p> :
-          <button type="button" disabled={applied === job.id || !cues.some(cue => cue.start_ms !== null)}
-            onClick={() => onApply(job.id, cues)}>{applied === job.id ? 'プレビューに適用済み' : '候補をプレビューに適用'}</button>}
+          <button type="button" disabled={appliedHere || !cues.some(cue => cue.start_ms !== null)}
+            onClick={() => onApply(job.id, cues)}>{appliedHere ? 'プレビューに適用済み' : '候補をプレビューに適用'}</button>}
       </div>
       <ol className="lines candidates" aria-label="同期候補">
         {cues.map(cue => <li key={cue.id}><div>
