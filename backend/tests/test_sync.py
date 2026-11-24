@@ -7,7 +7,9 @@ from sudachipy import dictionary
 
 from lyric_studio.cli import write_results
 from lyric_studio.sync.align import align_lyrics, lyric_lines, reading
-from lyric_studio.sync.refine import Candidate, choose_boundary, choose_recovery, corroborated_gap, extend_vocal_tails
+from lyric_studio.sync.refine import (
+    Candidate, choose_boundary, choose_recovery, corroborated_gap, extend_vocal_tails, refine_cues, trim_silent_ends,
+)
 
 
 class SyncPilotTests(unittest.TestCase):
@@ -48,6 +50,40 @@ class SyncPilotTests(unittest.TestCase):
         self.assertTrue(1300 <= changes[0]["end_ms"] < 1500)
         audio[400 * 16:] = .1
         self.assertEqual(extend_vocal_tails([cue, following], audio, 3000), [])
+
+    def test_trims_only_a_sustained_silent_end(self):
+        cue = {"id": "line-1", "status": "candidate", "start_ms": 400, "end_ms": 1800, "reasons": []}
+        audio = np.zeros(16000 * 3, dtype=np.float32)
+        audio[400 * 16:1320 * 16] = .1
+        changed = dict(cue, reasons=[])
+        evidence = trim_silent_ends([changed], audio)
+        self.assertEqual(len(evidence), 1)
+        self.assertTrue(1320 <= changed["end_ms"] < 1430)
+        self.assertEqual(changed["status"], "review")
+        audio[1320 * 16:1800 * 16] = .1
+        self.assertEqual(trim_silent_ends([cue], audio), [])
+
+    def test_recovers_only_a_corroborated_terminal_repetition(self):
+        lyric = "青い空が広がる"
+        previous = {"id": "line-1", "text": lyric, "start_ms": 1000, "end_ms": 3000,
+                    "status": "candidate", "reasons": []}
+        missing = {"id": "line-2", "text": lyric, "start_ms": None, "end_ms": None,
+                   "status": "unplaced", "reasons": []}
+        recognition = [{"text": lyric, "start_ms": 4400, "end_ms": 6300, "timing": "word"}]
+        models = {source: recognition for source in ("original", "vocals", "turbo")}
+        audio = np.zeros(16000 * 8, dtype=np.float32)
+        audio[1000 * 16:3000 * 16] = .1
+        audio[4400 * 16:6300 * 16] = .1
+        recovered, evidence = refine_cues([previous, missing], models, [previous, missing], audio, 8000)
+        self.assertEqual((recovered[1]["start_ms"], recovered[1]["end_ms"]), (4400, 6300))
+        self.assertTrue(evidence[0]["terminal_repetition"])
+        muted = audio.copy()
+        muted[4400 * 16:] = 0
+        unresolved, _ = refine_cues([previous, missing], models, [previous, missing], muted, 8000)
+        self.assertIsNone(unresolved[1]["start_ms"])
+        missing = dict(missing, text="山の頂に雲がかかる")
+        unresolved, _ = refine_cues([previous, missing], models, [previous, missing], audio, 8000)
+        self.assertIsNone(unresolved[1]["start_ms"])
 
     def test_lyrics_header_keeps_source_line_ids(self):
         text = "Title: Example\nStyle: Example\n\n Lyrics: \n[Verse]\n 空へ \nLyrics: という文字\n"

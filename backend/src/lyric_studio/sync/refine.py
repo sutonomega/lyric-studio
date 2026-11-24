@@ -335,6 +335,48 @@ def extend_vocal_tails(cues, audio, duration):
     return list(reversed(changes))
 
 
+def trim_silent_ends(cues, audio):
+    """Trim sustained silence inside a cue when two low thresholds find the same end."""
+    frames = len(audio) // 320
+    if frames < 25:
+        return []
+    samples = audio[:frames * 320].reshape(frames, 320)
+    rms = np.convolve(np.sqrt(np.mean(samples ** 2, axis=1)), np.full(5, .2), mode="same")
+    changes = []
+    for cue in cues:
+        start, end = cue["start_ms"], cue["end_ms"]
+        if start is None or end - start < 1000:
+            continue
+        first = (start + 19) // 20
+        last = min(frames, end // 20)
+        if last - first < 25:
+            continue
+        level = float(np.quantile(rms[first:last], .90))
+        if level < .004:
+            continue
+        endings = []
+        for db in (-24, -30):
+            threshold = max(.001, level * 10 ** (db / 20))
+            window = rms[max(first, last - 46):last]
+            voiced = np.flatnonzero(window >= threshold)
+            if not len(voiced) or len(window) - 1 - voiced[-1] < 12:
+                break
+            fall = last - len(window) + int(voiced[-1]) + 1
+            if np.mean(rms[max(first, fall - 8):fall] >= threshold) < .75:
+                break
+            endings.append(fall * 20)
+        if len(endings) != 2 or abs(endings[0] - endings[1]) > 100:
+            continue
+        target = max(endings)
+        if target - start < 500 or not 240 <= end - target <= 900:
+            continue
+        cue.update(end_ms=target, status="review")
+        cue["reasons"].append("trailing_vocal_silence")
+        changes.append({"id": cue["id"], "method": "trailing_vocal_silence",
+                        "previous_end_ms": end, "end_ms": target})
+    return changes
+
+
 def refine_cues(baseline, model_items, vocals_cues, audio, duration):
     """Fill supported gaps and propose boundary corrections without reference annotations."""
     cues = [dict(row, reasons=list(row["reasons"])) for row in baseline]
@@ -342,9 +384,19 @@ def refine_cues(baseline, model_items, vocals_cues, audio, duration):
     tokenizer = lexicon.tokenizer()
     evidence = []
     for first, after in groups(cues):
-        if first == 0 or after == len(cues):
+        if first == 0:
             continue
-        lo, hi = cues[first - 1]["end_ms"], cues[after]["start_ms"]
+        lo = cues[first - 1]["end_ms"]
+        terminal = after == len(cues)
+        if terminal:
+            key = normalized(cues[first]["text"])
+            if after - first != 1 or len(key) < 4 or not any(
+                cue["start_ms"] is not None and normalized(cue["text"]) == key for cue in cues[:first]
+            ):
+                continue
+            hi = min(duration, lo + 12000)
+        else:
+            hi = cues[after]["start_ms"]
         if lo >= hi:
             continue
         inputs = []
@@ -352,13 +404,15 @@ def refine_cues(baseline, model_items, vocals_cues, audio, duration):
             words = search([("original", None, model_items["original"])], row["text"], tokenizer, lo, hi)
             inputs.append({"anchor_range_ms": [lo, hi], "global_best": asdict(words[0]) if words else None})
         bands = envelope_bands(audio, max(0, lo - EDGE_SLACK_MS), min(duration, hi + EDGE_SLACK_MS))
-        estimates = choose_recovery(inputs, bands)
+        estimates = [None] if terminal else choose_recovery(inputs, bands)
         if after - first == 1 and estimates[0] is None:
             options = [search([(name, None, items)], cues[first]["text"], tokenizer, lo, hi)
                        for name, items in model_items.items()]
             estimates[0] = corroborated_gap(options, bands, lo, hi)
         for cue, estimate in zip(cues[first:after], estimates, strict=True):
             if estimate:
+                if terminal:
+                    estimate["terminal_repetition"] = True
                 cue.update(start_ms=estimate["start_ms"], end_ms=estimate["end_ms"], status="review")
                 cue["reasons"].append("experimental_recovery_requires_review")
                 evidence.append({"id": cue["id"], **estimate})
@@ -385,4 +439,4 @@ def refine_cues(baseline, model_items, vocals_cues, audio, duration):
     for number, change in changes.items():
         cues[number - 1].update(change)
         cues[number - 1]["reasons"].append("experimental_boundary_requires_review")
-    return cues, evidence + bridges + onsets + extend_vocal_tails(cues, audio, duration)
+    return cues, evidence + bridges + onsets + extend_vocal_tails(cues, audio, duration) + trim_silent_ends(cues, audio)
