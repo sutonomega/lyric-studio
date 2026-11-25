@@ -130,6 +130,7 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [revision, setRevision] = useState(0);
   const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
+  const [reviewControls, setReviewControls] = useState<HTMLFieldSetElement | null>(null);
   const [history, setHistory] = useState(emptyHistory);
   const [style, setStyle] = useState(defaultStyle);
   const [videoRatio, setVideoRatio] = useState<VideoRatio>('16:9');
@@ -144,6 +145,7 @@ function App() {
     setRevision(previous => previous + 1);
   }
   const player = useRef<HTMLMediaElement | null>(null);
+  const editorHeading = useRef<HTMLHeadingElement | null>(null);
   const mediaRequest = useRef<AbortController | null>(null);
   const imageRequest = useRef<AbortController | null>(null);
   const lyricRequest = useRef<AbortController | null>(null);
@@ -321,6 +323,12 @@ function App() {
     if (isTimed(cue)) seek(cue.start_ms / 1000);
   }
 
+  function openCueEditor(cue: Cue) {
+    selectCue(cue);
+    editorHeading.current?.focus({ preventScroll: true });
+    editorHeading.current?.scrollIntoView({ block: 'start' });
+  }
+
   function editSubtitle(edit: Edit) {
     setEditError(undefined);
     try {
@@ -430,13 +438,15 @@ function App() {
         {lines.length ? <ol className="lines" aria-label="字幕対象の行">
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
-        <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
-          appliedJob={track.sourceJob} hasEditedCues={track.cues.length > 0} onApply={(id, cues) => {
+        <SyncPanel controls={syncControls} reviewControls={reviewControls} media={material?.file} lyrics={text}
+          revision={revision} hasLines={lines.length > 0} selected={selected}
+          appliedJob={track.sourceJob} editedCues={track.cues} onOpenCue={openCueEditor} onSelectCue={selectCue} onApply={(id, cues) => {
             setHistory(commit(history, { sourceJob: id, cues }));
             const first = cues.find(isTimed) ?? cues[0];
             if (first) selectCue(first);
           }} onSeek={seek} />
-        <SubtitleEditor cues={track.cues} selected={selected} duration={duration} position={position} error={editError}
+        <SubtitleEditor headingRef={editorHeading} reviewControlsRef={setReviewControls} cues={track.cues}
+          selected={selected} duration={duration} position={position} error={editError}
           canUndo={history.past.length > 0} canRedo={history.future.length > 0}
           onSelect={selectCue} onEdit={editSubtitle} onUndo={() => navigateHistory(false)} onRedo={() => navigateHistory(true)} />
         <SubtitleOutput cues={track.cues} duration={duration} filename={material?.file.name ?? 'subtitles'}

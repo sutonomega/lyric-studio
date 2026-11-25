@@ -1,6 +1,12 @@
-# Lyric Studio 技術選定案
+# Lyric Studio 技術選定
 
-2026-11-24 / [承認・変更管理 #1](https://github.com/sutonomega/lyric-studio/issues/1)
+v1.0.0 / [仕様と変更管理 #1](https://github.com/sutonomega/lyric-studio/issues/1)
+
+## v1.0.0の採用構成
+
+基本の同期はfaster-whisperのsmallと順序制約付き照合を使う。補正モードはDemucsのhtdemucs、small、Turboとボーカルの音量を使う。追加確認用にローカルのWhisper Mediumを選べる。行境界の日本語CTCは技術検証を行い、v1.0.0の通常の同期工程からは外した。 [同期結果の評価 #7](https://github.com/sutonomega/lyric-studio/issues/7) [CTC検証 #6](https://github.com/sutonomega/lyric-studio/issues/6)
+
+編集画面はReact・TypeScript・Vite、ローカルAPIはFastAPI・Uvicorn、波形はWaveSurfer.jsを採用した。FFmpeg・ffprobeは外部プロセスとして使用し、同期・動画出力をローカルの別プロセスで実行する。 [基本設計](basic-design.md) [固定モデルの取得手順](../backend/README.md)
 
 ## Phase 1 で比較する構成
 

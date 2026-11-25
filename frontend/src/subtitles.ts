@@ -146,6 +146,10 @@ export const cueReasons: Record<string, string> = {
   vocal_tail_before_pause: '分離ボーカルが静かになる位置まで終了を延ばしました。',
   trailing_vocal_silence: '分離ボーカルの末尾の無音を除きました。',
   uncertain_trailing_vocal_silence: '末尾に静かな区間があります。時刻を確認してください。',
+  boundary_disagreement: '別モデルとの開始または終了時刻の差が500 msを超えています。',
+  second_model_unplaced: '別モデルでこの行の時刻を特定できませんでした。',
+  second_model_low_text_support: '別モデルの認識結果と歌詞の一致が少ない行です。',
+  low_vocal_activity: '候補区間のうち、ボーカル音量が基準以上の時間の割合が少ない行です。',
 };
 
 export function timestamp(ms: number, detailed = true) {

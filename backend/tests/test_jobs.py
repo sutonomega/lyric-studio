@@ -4,7 +4,7 @@ import sys
 from tempfile import TemporaryDirectory
 import unittest
 
-from lyric_studio.jobs import SyncJobs
+from lyric_studio.jobs import SyncJobs, SyncOptions
 
 
 class RunningWorker:
@@ -34,6 +34,21 @@ child.wait()
 
 
 class SyncJobTests(unittest.IsolatedAsyncioTestCase):
+    async def test_audit_selection_is_scoped_to_each_job(self):
+        options = SyncOptions(Path("ffmpeg"), Path("small"), turbo_model=Path("turbo"),
+                              demucs_python=Path("demucs"), audit_model=Path("medium"))
+        registry = SyncJobs(options)
+        self.addAsyncCleanup(registry.close)
+        folder, media = Path("scratch"), Path("source.wav")
+        plain = registry.register("wav", "歌詞", audit=False)
+        self.assertIsNone(plain.options.audit_model)
+        self.assertNotIn("--audit-model", plain.options.command(folder, media, "wav"))
+        self.assertEqual(plain.options.profile, "refined")
+        registry.cancel(plain)
+        audited = registry.register("wav", "歌詞", audit=True)
+        self.assertEqual(audited.options.command(folder, media, "wav")[-2:], ["--audit-model", "medium"])
+        self.assertIsNone(plain.options.audit_model)
+
     async def test_cancel_stops_worker_and_child_before_releasing_slot(self):
         sandbox = self.enterContext(TemporaryDirectory())
         heartbeat = Path(sandbox) / "heartbeat"

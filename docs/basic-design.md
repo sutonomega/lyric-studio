@@ -1,6 +1,6 @@
 # Lyric Studio 基本設計書
 
-2026-11-24 / レビュー案 / [承認・変更管理 #1](https://github.com/sutonomega/lyric-studio/issues/1)
+v1.0.0 / [仕様と変更管理 #1](https://github.com/sutonomega/lyric-studio/issues/1)
 
 ## システム構成
 

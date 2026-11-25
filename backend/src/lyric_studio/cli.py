@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from time import perf_counter
 import wave
@@ -17,6 +18,7 @@ import ctranslate2
 from faster_whisper import WhisperModel
 import numpy as np
 
+from .auto_evaluation import check_cues, foreground_activity
 from .media import decode
 from .subtitle_export import render_srt
 from .sync.align import align_lyrics
@@ -97,6 +99,25 @@ def report_stage(args, stage):
             stream.write(stage + "\n")
 
 
+def audit_lines(args, lines, report, lyrics, original, vocals, compute_type):
+    report_stage(args, "audit")
+    try:
+        model = load_model(args.audit_model, args.device, compute_type)
+        items = transcribe(model, original, seed=0)
+        duration = report["duration_ms"]
+        alternate = align_lyrics(lyrics, items, duration)
+        audit = check_cues(lines, alternate, foreground_activity(vocals), duration)
+    except (OSError, ValueError, RuntimeError) as error:
+        report["audit_failed"] = True
+        print(f"Additional check failed: {error}", file=sys.stderr)
+        return
+    report["audit"] = {"model_revision": args.audit_model.name, "seed": 0, "counts": audit["counts"]}
+    for cue, row in zip(lines, audit["rows"], strict=True):
+        cue["audit"] = {key: row[key] for key in (
+            "audit_status", "reasons", "second_model_start_ms", "second_model_end_ms",
+        )}
+
+
 def run(args, ffmpeg, directory):
     report_stage(args, "decode")
     raw = directory / "original.wav"
@@ -158,6 +179,8 @@ def run(args, ffmpeg, directory):
     report["asr"]["model_revisions"]["turbo"] = args.turbo_model.name
     report["refinement_evidence"] = evidence
     report["vocal_input"] = "provided_stem" if args.vocals else "htdemucs"
+    if args.audit_model:
+        audit_lines(args, lines, report, text, original, vocals, compute_type)
     return lines, report
 
 
@@ -167,6 +190,7 @@ def main():
     parser.add_argument("lyrics", type=Path, help="UTF-8 lyrics")
     parser.add_argument("--small-model", type=Path, required=True, help="local faster-whisper small directory")
     parser.add_argument("--turbo-model", type=Path, help="local Turbo model for experimental refinement")
+    parser.add_argument("--audit-model", type=Path, help="separate local model for checking refined cues")
     stems = parser.add_mutually_exclusive_group()
     stems.add_argument("--vocals", type=Path, help="pre-separated time-aligned vocal stem")
     stems.add_argument("--demucs-python", type=Path, help="Python with Demucs and cached htdemucs")
@@ -181,12 +205,17 @@ def main():
         parser.error("--seed must be between 0 and 4294967295")
     if bool(args.turbo_model) != bool(args.vocals or args.demucs_python):
         parser.error("refinement requires both --turbo-model and either --vocals or --demucs-python")
+    if args.audit_model and not args.turbo_model:
+        parser.error("--audit-model requires refinement")
     for path in (args.media, args.lyrics, args.vocals, args.demucs_python):
         if path and not path.is_file():
             parser.error(f"file not found: {path}")
-    for model in (args.small_model, args.turbo_model):
+    for model in (args.small_model, args.turbo_model, args.audit_model):
         if model and not (model / "model.bin").is_file():
             parser.error(f"local model.bin not found: {model}")
+    if args.audit_model and any((args.audit_model / "model.bin").samefile(model / "model.bin")
+                                for model in (args.small_model, args.turbo_model)):
+        parser.error("--audit-model must use a different model from --small-model and --turbo-model")
     ffmpeg = shutil.which(args.ffmpeg)
     if not ffmpeg:
         parser.error("FFmpeg executable not found")

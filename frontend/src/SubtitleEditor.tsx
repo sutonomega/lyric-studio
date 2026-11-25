@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useState, type Ref } from 'react';
 import { cueReasons, cueStatus, isTimed, timestamp, type Cue, type Edit } from './subtitles';
 
 function seconds(ms: number | null) {
@@ -9,17 +9,18 @@ function milliseconds(input: string) {
   return input.trim() ? Math.round(Number(input) * 1000) : null;
 }
 
-function CueInspector({ cue, position, duration, error, onEdit }: {
+function draftFor(cue: Cue) {
+  return { cue, text: cue.text, start: seconds(cue.start_ms), end: seconds(cue.end_ms) };
+}
+
+function CueInspector({ cue, position, duration, error, onEdit, reviewControlsRef }: {
   cue: Cue; position: number; duration: number; error?: string; onEdit: (edit: Edit) => void;
+  reviewControlsRef: Ref<HTMLFieldSetElement>;
 }) {
-  const [text, setText] = useState(cue.text);
-  const [start, setStart] = useState(seconds(cue.start_ms));
-  const [end, setEnd] = useState(seconds(cue.end_ms));
-  useLayoutEffect(() => {
-    setText(cue.text);
-    setStart(seconds(cue.start_ms));
-    setEnd(seconds(cue.end_ms));
-  }, [cue]);
+  const [draft, setDraft] = useState(() => draftFor(cue));
+  const current = draft.cue === cue ? draft : draftFor(cue);
+  const { text, start, end } = current;
+  useLayoutEffect(() => setDraft(draftFor(cue)), [cue]);
   const editing = text !== cue.text || milliseconds(start) !== cue.start_ms || milliseconds(end) !== cue.end_ms;
   const sourceTime = Math.round(position * 1000);
 
@@ -27,13 +28,14 @@ function CueInspector({ cue, position, duration, error, onEdit }: {
     event.preventDefault();
     onEdit({type:'update', id:cue.id, text, start:milliseconds(start), end:milliseconds(end)});
   }}>
+    <fieldset ref={reviewControlsRef} className="review-navigation" disabled={editing} aria-label="追加確認の移動" />
     <label htmlFor="subtitle-text">字幕テキスト</label>
-    <textarea id="subtitle-text" value={text} onChange={event => setText(event.currentTarget.value)} rows={2} />
+    <textarea id="subtitle-text" value={text} onChange={event => setDraft({ ...current, text: event.currentTarget.value })} rows={2} />
     <div className="cue-time-fields">
       <label>開始（秒）<input name="start" type="number" min="0" max={duration} step="0.001"
-        value={start} onChange={event => setStart(event.currentTarget.value)} /></label>
+        value={start} onChange={event => setDraft({ ...current, start: event.currentTarget.value })} /></label>
       <label>終了（秒）<input name="end" type="number" min="0" max={duration} step="0.001"
-        value={end} onChange={event => setEnd(event.currentTarget.value)} /></label>
+        value={end} onChange={event => setDraft({ ...current, end: event.currentTarget.value })} /></label>
     </div>
     <div className="edit-actions">
       <button className="primary" type="submit" disabled={!editing}>変更を反映</button>
@@ -48,7 +50,9 @@ function CueInspector({ cue, position, duration, error, onEdit }: {
   </form>;
 }
 
-export function SubtitleEditor({ cues, selected, duration, position, error, canUndo, canRedo, onSelect, onEdit, onUndo, onRedo }: {
+export function SubtitleEditor({ headingRef, reviewControlsRef, cues, selected, duration, position, error, canUndo, canRedo, onSelect, onEdit, onUndo, onRedo }: {
+  headingRef: Ref<HTMLHeadingElement>;
+  reviewControlsRef: Ref<HTMLFieldSetElement>;
   cues: Cue[];
   selected?: string;
   duration: number;
@@ -71,7 +75,7 @@ export function SubtitleEditor({ cues, selected, duration, position, error, canU
 
   return <section className="subtitle-editor" aria-labelledby="subtitle-editor-title">
     <div className="section-head editor-heading">
-      <h3 id="subtitle-editor-title">字幕編集</h3>
+      <h3 id="subtitle-editor-title" ref={headingRef} tabIndex={-1}>字幕編集</h3>
       <div className="edit-actions">
         <button type="button" disabled={!canUndo} onClick={onUndo}>元に戻す</button>
         <button type="button" disabled={!canRedo} onClick={onRedo}>やり直す</button>
@@ -96,7 +100,8 @@ export function SubtitleEditor({ cues, selected, duration, position, error, canU
         </button>
       </li>)}
     </ol>}
-    {cue && <CueInspector key={cue.id} cue={cue} position={position} duration={duration} error={inspectorError ? error?.message : undefined} onEdit={onEdit} />}
+    {cue && <CueInspector cue={cue} position={position} duration={duration} error={inspectorError ? error?.message : undefined}
+      onEdit={onEdit} reviewControlsRef={reviewControlsRef} />}
     {cues.some(isTimed) && <form className="offset-form" onSubmit={event => {
       event.preventDefault();
       onEdit({type:'shift', offset:milliseconds(offset) ?? NaN});
