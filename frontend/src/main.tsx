@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SyncPanel } from './SyncPanel';
 import { SubtitleEditor } from './SubtitleEditor';
+import { defaultStyle, SubtitleOutput, SubtitleOverlay } from './SubtitleOutput';
 import { commit, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
 import { Timeline, type WaveformData } from './Timeline';
 import './studio.css';
@@ -125,11 +126,14 @@ function App() {
   const [revision, setRevision] = useState(0);
   const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
   const [history, setHistory] = useState(emptyHistory);
+  const [style, setStyle] = useState(defaultStyle);
+  const [fonts, setFonts] = useState<string[]>();
+  const [showSample, setShowSample] = useState(false);
   const [selection, setSelection] = useState<string>();
   const [editError, setEditError] = useState<{ operation: Edit['type']; message: string }>();
   const track = history.current;
   const selected = track.cues.find(cue => cue.id === selection)?.id ?? track.cues[0]?.id;
-  const subtitle = track.cues.find(cue => isTimed(cue) && cue.start_ms <= position * 1000 && position * 1000 < cue.end_ms);
+  const previewSample = showSample ? track.cues.find(cue => cue.id === selected)?.text || '字幕プレビュー' : '';
   function markSourceChanged() {
     setRevision(previous => previous + 1);
   }
@@ -139,6 +143,22 @@ function App() {
   const lyricRequest = useRef<AbortController | null>(null);
   const typingTimer = useRef<number | undefined>(undefined);
 
+  useEffect(() => {
+    const request = new AbortController();
+    void fetch('/api/subtitles/fonts', { signal: request.signal })
+      .then(response => {
+        if (!response.ok) throw Error('font list unavailable');
+        return response.json() as Promise<{ families: string[] }>;
+      })
+      .then(({ families }) => {
+        if (request.signal.aborted) return;
+        setFonts(families);
+        const preferred = ['Meiryo UI', 'Yu Gothic UI', 'Noto Sans JP'].find(font => families.includes(font));
+        setStyle(previous => ({ ...previous, font: preferred ?? families[0] ?? '' }));
+      })
+      .catch(() => { if (!request.signal.aborted) setFonts([]); });
+    return () => request.abort();
+  }, []);
   useEffect(() => () => { if (material) URL.revokeObjectURL(material.url); }, [material]);
   useEffect(() => () => { if (artwork) URL.revokeObjectURL(artwork.url); }, [artwork]);
   useEffect(() => () => {
@@ -321,7 +341,8 @@ function App() {
                   <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
                 </div>}
             </>}
-            {subtitle?.text && <p className="subtitle-overlay">{subtitle.text}</p>}
+            <SubtitleOverlay cues={track.cues} position={position} playing={playing} player={player}
+              style={style} sample={previewSample} />
           </div>
           <div className="transport">
             <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
@@ -330,6 +351,7 @@ function App() {
               value={position} disabled={!seekable} onChange={(event) => seek(event.currentTarget.valueAsNumber)} />
             <span className="clock">{timestamp(seekable ? duration : 0)}</span>
             {seekable && <a className="timeline-link" href="#timeline-title">タイムライン</a>}
+            <a className="timeline-link" href="#style-title">字幕スタイル</a>
           </div>
           <Status notice={mediaNotice} />
           <div className="artwork">
@@ -361,6 +383,9 @@ function App() {
         <SubtitleEditor cues={track.cues} selected={selected} duration={duration} position={position} error={editError}
           canUndo={history.past.length > 0} canRedo={history.future.length > 0}
           onSelect={selectCue} onEdit={editSubtitle} onUndo={() => navigateHistory(false)} onRedo={() => navigateHistory(true)} />
+        <SubtitleOutput cues={track.cues} duration={duration} filename={material?.file.name ?? 'subtitles'}
+          fonts={fonts} style={style} sample={previewSample} onStyle={setStyle}
+          onToggleSample={() => setShowSample(value => !value)} />
       </section>
       <Timeline key={material?.url} duration={duration} position={position} waveform={material?.waveform}
         cues={track.cues} selected={selected} onSelect={selectCue} onSeek={seek}

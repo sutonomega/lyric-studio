@@ -10,21 +10,54 @@ import subprocess
 from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 import uvicorn
 
+from .fonts import japanese_fonts
 from .jobs import SyncJobs, SyncOptions
 from .media import extract_waveform
+from .subtitle_export import export_subtitles
 from .sync.align import lyric_lines
 
 
 MAX_MEDIA_BYTES = 2 * 1024 ** 3
 MAX_LYRIC_BYTES = 1024 ** 2
 MEDIA_FORMATS = {"mp4": "mov", "mp3": "mp3", "wav": "wav"}
+
+COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class SubtitleStyle(BaseModel):
+    font: str = Field(min_length=1, max_length=64)
+    size: int = Field(ge=16, le=144)
+    color: str = Field(pattern=COLOR_PATTERN)
+    opacity: int = Field(ge=0, le=100)
+    outline: int = Field(ge=0, le=12)
+    outline_color: str = Field(pattern=COLOR_PATTERN)
+    shadow: int = Field(ge=0, le=18)
+    letter_spacing: int = Field(ge=0, le=20)
+    line_spacing: int = Field(ge=0, le=64)
+    anchor: int = Field(ge=1, le=9)
+    fade_in: int = Field(ge=0, le=2000)
+    fade_out: int = Field(ge=0, le=2000)
+
+
+class SubtitleCue(BaseModel):
+    text: str
+    start_ms: int | None
+    end_ms: int | None
+
+
+class SubtitleRequest(BaseModel):
+    duration_ms: int = Field(gt=0)
+    cues: list[SubtitleCue]
+    skip_excluded: bool = False
+    style: SubtitleStyle | None = None
 
 
 def require_local_request(request):
@@ -139,6 +172,29 @@ def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
         encoding = "utf-8-sig" if source == "text" or data.startswith(b"\xef\xbb\xbf") else "utf-8"
         text = decode_lyrics(data, encoding)
         return {"text": text, "lines": lyric_lines(text)}
+
+    @app.get("/api/subtitles/fonts")
+    async def fonts():
+        return {"families": await run_in_threadpool(japanese_fonts)}
+
+    @app.post("/api/subtitles/{kind}")
+    async def subtitles(kind: str, request: Request):
+        require_local_request(request)
+        if kind not in ("srt", "ass"):
+            raise HTTPException(415, "SRTまたはASSを選んでください。")
+        data = bytearray()
+        async for chunk in limited_chunks(request, 6 * MAX_LYRIC_BYTES):
+            data.extend(chunk)
+        try:
+            payload = SubtitleRequest.model_validate_json(data)
+        except ValidationError:
+            raise HTTPException(422, "書き出す字幕とスタイルの値を確認してください。") from None
+        try:
+            installed = await run_in_threadpool(japanese_fonts) if kind == "ass" else ()
+            result = await run_in_threadpool(export_subtitles, kind, payload, installed)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return PlainTextResponse("\ufeff" + result)
 
     def find_job(job_id):
         job = jobs.jobs.get(job_id)

@@ -18,7 +18,8 @@ from faster_whisper import WhisperModel
 import numpy as np
 
 from .media import decode
-from .sync.align import align_lyrics, srt_time
+from .subtitle_export import render_srt
+from .sync.align import align_lyrics
 from .sync.refine import refine_cues
 
 
@@ -69,13 +70,6 @@ def get_vocals(args, ffmpeg, directory):
         "-o", str(directory / "stems"), str(stereo),
     ], check=True, env=env)
     return directory / "stems" / "htdemucs" / "mix" / "vocals.wav", round(perf_counter() - start, 3)
-
-
-def render_srt(placed):
-    return "\n".join(
-        f'{number}\n{srt_time(line["start_ms"])} --> {srt_time(line["end_ms"])}\n{line["text"]}\n'
-        for number, line in enumerate(placed, 1)
-    )
 
 
 def write_results(output, lines, report):
