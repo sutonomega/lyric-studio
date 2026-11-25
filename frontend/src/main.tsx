@@ -4,7 +4,7 @@ import { SyncPanel } from './SyncPanel';
 import { Projects, type ProjectDocument, type AssetReference } from './Projects';
 import { SubtitleEditor } from './SubtitleEditor';
 import { defaultStyle, SubtitleOutput, SubtitleOverlay } from './SubtitleOutput';
-import { commit, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
+import { commit, cueForProject, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
 import { Timeline, type WaveformData } from './Timeline';
 import { VideoOutput, type VideoRatio } from './VideoOutput';
 import './studio.css';
@@ -362,7 +362,7 @@ function App() {
       event.preventDefault();
       navigateHistory(key === 'y' || event.shiftKey);
     }}>
-      <Projects document={{title, lyrics:text, cues:track.cues, style, video_ratio:videoRatio,
+      <Projects document={{title, lyrics:text, cues:track.cues.map(cueForProject), style, video_ratio:videoRatio,
         duration_ms:Math.round(duration * 1000) || 0, media:mediaRef, image:imageRef}}
         onTitle={setTitle} onLoad={restoreProject} />
       <div className="preview-column">

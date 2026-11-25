@@ -7,6 +7,10 @@ export type Cue = {
   reasons: string[];
 };
 export type TimedCue = Cue & { start_ms: number; end_ms: number };
+
+export function cueForProject({ id, text, start_ms, end_ms, status, reasons }: Cue): Cue {
+  return { id, text, start_ms, end_ms, status, reasons };
+}
 export type Boundary = 'start_ms' | 'end_ms';
 export type Track = { sourceJob?: string; cues: Cue[] };
 type History = { past: Track[]; current: Track; future: Track[] };
