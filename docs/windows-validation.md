@@ -14,7 +14,7 @@
 | 要求 | 結果 |
 | --- | --- |
 | R01 素材と歌詞の読み込み | Chrome／Edgeで音声付きMP4、MP3・WAV、PNG・JPEG、貼り付け、UTF-8・CP932 TXTを確認。音声なし、非対応コーデック、破損ファイルへの案内を確認。 [PR #19](https://github.com/sutonomega/lyric-studio/pull/19) |
-| R02 行単位の自動同期 | CPUとCUDAで合成音声の日本語歌詞を同期。実曲の歌唱時刻への誤差と作業時間は保留。 [Issue #7の結果](https://github.com/sutonomega/lyric-studio/issues/7) |
+| R02 行単位の自動同期 | 時刻が既知の合成音声をCPUとCUDAで採点し、実曲4曲を自動チェック。詳細は下記の正式版判定を参照。 |
 | R03 歌詞の読み取り | `Lyrics:`、構成タグ、空行、同じ本文の繰り返しを確認。 [PR #19](https://github.com/sutonomega/lyric-studio/pull/19) |
 | R04 字幕編集 | タイムラインの境界、追加・削除、分割・結合、時間変更、一括移動、Undo/Redoを確認。 [PR #21](https://github.com/sutonomega/lyric-studio/pull/21) [PR #22](https://github.com/sutonomega/lyric-studio/pull/22) |
 | R05 プレビュー | 波形、シーク、時刻と字幕の連動、スタイル変更を確認。 [PR #21](https://github.com/sutonomega/lyric-studio/pull/21) [PR #23](https://github.com/sutonomega/lyric-studio/pull/23) |
@@ -79,6 +79,13 @@ Chromeで追加確認の一覧から適用済みの字幕を開き、編集欄�
 
 ## 正式公開の判定
 
-**正式版の判断は保留。** 合成素材でアプリの一連の機能は確認できました。実曲4曲の既存の自動チェックでは269行中150行に裏付けがあり、119行が要確認でした。この集計は別モデルとの一致やボーカルの活動を示します。実際の歌唱時刻に対する誤差、見逃した要修正箇所、手直し時間は未計測です。
+時刻が既知の合成読み上げ音声で、日本語の5行と読まれない1行を確認しました。分離済みボーカル、固定モデル、seed 0、補正・追加確認ありで実行し、CPUとCUDAの両方で読み上げ5行の開始・終了がすべて既知時刻の500ms以内でした。読まれない1行はどちらも未配置でした。
 
-正式公開前に、実曲での運用結果、公開範囲と本体のライセンスをレビューし、ユーザーとリリース可否を確認します。 [依存ライセンスと配布方式](distribution-notes.md) [Issue #15](https://github.com/sutonomega/lyric-studio/issues/15)
+| 実行環境 | 開始誤差の中央値 / P90 | 終了誤差の中央値 / P90 |
+| --- | ---: | ---: |
+| CPU | 220 / 340ms | 40 / 350ms |
+| CUDA | 240 / 360ms | 100 / 350ms |
+
+正式版は合成音声の時刻採点と実曲4曲の自動チェックを基に判定します。実曲では269行を配置し、自動チェックで151行に裏付けがあり、118行が要確認でした。実曲の歌唱時刻に対する誤差、見逃した要修正箇所、手直し時間は未計測です。
+
+公開するのはMIT Licenseを適用した本体ソースです。依存ライブラリ、FFmpeg、モデル、GPUランタイムは利用者がそれぞれの配布元から取得します。 [依存ライセンスと配布方式](distribution-notes.md) [Issue #15](https://github.com/sutonomega/lyric-studio/issues/15)

@@ -14,6 +14,6 @@ Gitで管理するソースから環境を作り、Pythonとnpmの依存をイ�
 | Whisperおよび分離のモデル重み | 固定リビジョンは[同期CLIの手順](../backend/README.md)に記載。重みの同梱には、それぞれの配布条件を確認する。 [Whisper small](https://huggingface.co/Systran/faster-whisper-small) [Turbo](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo) [HTDemucs](https://huggingface.co/adefossez/HTDemucs) |
 | CUDA DLL | NVIDIAの配布条件を確認する。検証のDLLはユーザー側の環境にインストールして使用する。 [CUDA配布条件](https://docs.nvidia.com/cuda/eula/index.html) [cuDNN配布条件](https://docs.nvidia.com/deeplearning/cudnn/backend/latest/reference/license.html) |
 
-## 公開時に決めること
+## v1.0.0の公開範囲
 
-Lyric Studio本体のライセンスと公開範囲を決めます。作成済みバイナリ、ブラウザ向けビルド、モデル、CUDA DLLを同梱する方式を採る場合は、対象を確定して告知・配布条件を確認します。個人素材、歌詞、プロジェクト、結果キャッシュ、開発者のモデルキャッシュは配布物から除外します。
+Lyric Studio本体のソースをGitHubで公開します。本体には [MIT License](../LICENSE) を適用します。利用者は依存ライブラリ、FFmpeg、モデル、GPUランタイムをそれぞれの配布元から取得し、ブラウザ向けのファイルをローカルでビルドします。個人素材、歌詞、プロジェクト、結果キャッシュ、開発者のモデルキャッシュは配布物から除外します。
