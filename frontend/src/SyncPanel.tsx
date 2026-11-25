@@ -40,16 +40,17 @@ async function request<T>(route: string, options?: RequestInit): Promise<T> {
   return reply.json();
 }
 
-export function SyncPanel({ controls, media, lyrics, revision, hasLines, appliedJob, hasEditedCues, onApply, onSeek }: {
+export function SyncPanel({ controls, media, lyrics, revision, hasLines, appliedJob, editedCues, onApply, onSeek, onOpenCue }: {
   controls: HTMLDivElement | null;
   media?: File;
   lyrics: string;
   revision: number;
   hasLines: boolean;
   appliedJob?: string;
-  hasEditedCues: boolean;
+  editedCues: Cue[];
   onApply: (id: string, cues: Cue[]) => void;
   onSeek: (seconds: number) => void;
+  onOpenCue: (cue: Cue) => void;
 }) {
   const [config, setConfig] = useState<Config>();
   const [auditEnabled, setAuditEnabled] = useState(true);
@@ -150,6 +151,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   const additional = auditReviews.filter(cue => cue.status === 'candidate');
   const auditAvailable = cues?.some(cue => cue.audit);
   const visibleCues = additionalOnly ? additional : appliedHere ? [] : cues;
+  const editableCues = appliedHere && additionalOnly && !stale ? new Map(editedCues.map(cue => [cue.id, cue])) : undefined;
   const inputHint = config?.available
     ? (!media || !hasLines) && '素材と歌詞を読み込むと開始できます'
     : config && '同期を有効にするには、起動時にローカルモデルを指定してください。';
@@ -186,7 +188,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
         <p>{cues.filter(cue => cue.status === 'candidate').length} 候補 ／ {cues.filter(cue => cue.status === 'review').length} 要確認 ／ {cues.filter(cue => cue.status === 'unplaced').length} 未配置</p>
         {appliedHere ? <p>適用済み · <a href="#subtitle-editor-title">字幕編集を開く</a></p> : stale ? <p role="status">同期開始後に素材または歌詞が変わりました。現在の入力で再実行してください。</p> :
           <button type="button" disabled={!cues.length}
-            onClick={() => onApply(job.id, cues)}>{hasEditedCues ? '同期候補で字幕を置き換える' : '候補をプレビューに適用'}</button>}
+            onClick={() => onApply(job.id, cues)}>{editedCues.length ? '同期候補で字幕を置き換える' : '候補をプレビューに適用'}</button>}
         {job.audit_failed && <p role="status">別モデルでの追加確認に失敗しました。通常の同期候補を利用できます。</p>}
         {auditAvailable && <p>別モデルとボーカル音量で要確認 {auditReviews.length} 件 ／ うち追加確認 {additional.length} 件</p>}
         {additional.length > 0 && <button type="button" aria-pressed={additionalOnly} onClick={() => setAdditionalOnly(value => !value)}>
@@ -197,6 +199,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
       {Boolean(visibleCues?.length) && <ol className="lines candidates" aria-label={additionalOnly ? '追加確認の歌詞' : '同期候補'}>
         {visibleCues?.map(cue => {
           const audit = cue.audit?.audit_status === 'review' ? cue.audit : undefined;
+          const editable = editableCues?.get(cue.id);
           return <li key={cue.id}><div>
             <p>{cue.text}</p>
             <div className="cue-info">
@@ -205,6 +208,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
               {cue.start_ms !== null && cue.end_ms !== null && <button type="button" disabled={stale} onClick={() => onSeek(cue.start_ms! / 1000)}>
                 {timestamp(cue.start_ms)} – {timestamp(cue.end_ms)}
               </button>}
+              {editable && <button type="button" onClick={() => onOpenCue(editable)}>字幕を編集</button>}
             </div>
             {cue.reasons.length > 0 && <ul>{cue.reasons.map(reason => <li key={reason}>{cueReasons[reason] ?? reason}</li>)}</ul>}
             {audit && <>

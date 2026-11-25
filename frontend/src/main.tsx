@@ -144,6 +144,7 @@ function App() {
     setRevision(previous => previous + 1);
   }
   const player = useRef<HTMLMediaElement | null>(null);
+  const editorHeading = useRef<HTMLHeadingElement | null>(null);
   const mediaRequest = useRef<AbortController | null>(null);
   const imageRequest = useRef<AbortController | null>(null);
   const lyricRequest = useRef<AbortController | null>(null);
@@ -321,6 +322,12 @@ function App() {
     if (isTimed(cue)) seek(cue.start_ms / 1000);
   }
 
+  function openCueEditor(cue: Cue) {
+    selectCue(cue);
+    editorHeading.current?.focus({ preventScroll: true });
+    editorHeading.current?.scrollIntoView({ block: 'start' });
+  }
+
   function editSubtitle(edit: Edit) {
     setEditError(undefined);
     try {
@@ -431,12 +438,12 @@ function App() {
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
         <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
-          appliedJob={track.sourceJob} hasEditedCues={track.cues.length > 0} onApply={(id, cues) => {
+          appliedJob={track.sourceJob} editedCues={track.cues} onOpenCue={openCueEditor} onApply={(id, cues) => {
             setHistory(commit(history, { sourceJob: id, cues }));
             const first = cues.find(isTimed) ?? cues[0];
             if (first) selectCue(first);
           }} onSeek={seek} />
-        <SubtitleEditor cues={track.cues} selected={selected} duration={duration} position={position} error={editError}
+        <SubtitleEditor headingRef={editorHeading} cues={track.cues} selected={selected} duration={duration} position={position} error={editError}
           canUndo={history.past.length > 0} canRedo={history.future.length > 0}
           onSelect={selectCue} onEdit={editSubtitle} onUndo={() => navigateHistory(false)} onRedo={() => navigateHistory(true)} />
         <SubtitleOutput cues={track.cues} duration={duration} filename={material?.file.name ?? 'subtitles'}

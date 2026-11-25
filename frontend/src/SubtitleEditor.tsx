@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useState, type Ref } from 'react';
 import { cueReasons, cueStatus, isTimed, timestamp, type Cue, type Edit } from './subtitles';
 
 function seconds(ms: number | null) {
@@ -48,7 +48,8 @@ function CueInspector({ cue, position, duration, error, onEdit }: {
   </form>;
 }
 
-export function SubtitleEditor({ cues, selected, duration, position, error, canUndo, canRedo, onSelect, onEdit, onUndo, onRedo }: {
+export function SubtitleEditor({ headingRef, cues, selected, duration, position, error, canUndo, canRedo, onSelect, onEdit, onUndo, onRedo }: {
+  headingRef: Ref<HTMLHeadingElement>;
   cues: Cue[];
   selected?: string;
   duration: number;
@@ -71,7 +72,7 @@ export function SubtitleEditor({ cues, selected, duration, position, error, canU
 
   return <section className="subtitle-editor" aria-labelledby="subtitle-editor-title">
     <div className="section-head editor-heading">
-      <h3 id="subtitle-editor-title">字幕編集</h3>
+      <h3 id="subtitle-editor-title" ref={headingRef} tabIndex={-1}>字幕編集</h3>
       <div className="edit-actions">
         <button type="button" disabled={!canUndo} onClick={onUndo}>元に戻す</button>
         <button type="button" disabled={!canRedo} onClick={onRedo}>やり直す</button>
