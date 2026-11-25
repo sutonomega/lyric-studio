@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 import re
 
-from .cli import render_srt, sha256_file
+from .cli import sha256_file
+from .subtitle_export import render_srt
 from .evaluation import read_json, write_new
 
 
