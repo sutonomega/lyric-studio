@@ -52,6 +52,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   onSeek: (seconds: number) => void;
 }) {
   const [config, setConfig] = useState<Config>();
+  const [auditEnabled, setAuditEnabled] = useState(true);
   const [job, setJob] = useState<Job>();
   const [startedRevision, setStartedRevision] = useState<number>();
   const [notice, setNotice] = useState('');
@@ -108,7 +109,10 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
     try {
       created = await request<Job>('jobs', {
         method: 'POST',
-        body: JSON.stringify({ kind: media.name.split('.').at(-1)?.toLowerCase(), lyrics }),
+        body: JSON.stringify({
+          kind: media.name.split('.').at(-1)?.toLowerCase(), lyrics,
+          audit: Boolean(config?.audit && auditEnabled),
+        }),
       });
       setJob(created);
       setStartedRevision(revision);
@@ -152,6 +156,11 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   const error = notice || (!preparing && job?.error);
   return <section className="sync" aria-labelledby="sync-title">
     {controls && createPortal(<>
+      {config?.audit && <label className="sync-audit-option">
+        <input type="checkbox" checked={auditEnabled} disabled={Boolean(activeId || starting || cancelling)}
+          onChange={event => setAuditEnabled(event.currentTarget.checked)} />
+        追加確認を行う
+      </label>}
       {(job || preparing || inputHint || error) && <div className="sync-header-status">
         {(job || preparing) && <div className="job-state" role="status">
           {(activeId || preparing) && <progress aria-label="同期の進捗" />}
@@ -168,7 +177,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
     </>, controls)}
     <div className="list-head sync-heading">
       <div><h3 id="sync-title">自動同期</h3>
-        {config?.available && <p className="filename">{config.profile === 'refined' ? 'ボーカル分離と補正あり' : '原音を使う同期'} · {config.device?.toUpperCase()}{config.audit && ' · 別モデルで追加確認'}</p>}
+        {config?.available && <p className="filename">{config.profile === 'refined' ? 'ボーカル分離と補正あり' : '原音を使う同期'} · {config.device?.toUpperCase()}</p>}
       </div>
     </div>
     {job && cues && <>

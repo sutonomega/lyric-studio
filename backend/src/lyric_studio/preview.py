@@ -183,12 +183,17 @@ def create_app(dist, ffprobe, sync_options=None, ffmpeg=None, data_dir=None):
             lyric_bytes = lyrics.encode("utf-8")
         except (ValueError, KeyError, TypeError):
             raise HTTPException(422, "素材の形式と歌詞を確認してください。") from None
+        audit = payload.get("audit", bool(sync_options.audit_model))
+        if not isinstance(audit, bool):
+            raise HTTPException(422, "追加確認の設定を確認してください。")
+        if audit and not sync_options.audit_model:
+            raise HTTPException(422, "追加確認を使うには、起動時に別のローカルモデルを指定してください。")
         if len(lyric_bytes) > MAX_LYRIC_BYTES:
             raise HTTPException(413, "歌詞テキストが大きすぎます。")
         if not lyric_lines(decode_lyrics(lyric_bytes, "utf-8-sig")):
             raise HTTPException(422, "字幕にする歌詞を入力してください。")
         try:
-            return jobs.register(kind, lyrics).snapshot()
+            return jobs.register(kind, lyrics, audit=audit).snapshot()
         except RuntimeError:
             raise HTTPException(409, "別の同期処理が実行中です。完了後に再実行してください。") from None
 

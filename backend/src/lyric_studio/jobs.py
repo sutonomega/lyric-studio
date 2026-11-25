@@ -1,7 +1,7 @@
 """Local synchronization jobs with immutable inputs and temporary worker files."""
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import logging
 import os
@@ -61,6 +61,7 @@ class Job:
     id: str
     kind: str
     lyrics: str
+    options: SyncOptions
     state: str = "queued"
     stage: str = "素材の転送待ち"
     error: str | None = None
@@ -132,12 +133,15 @@ class SyncJobs:
         self.cache = cache
         self.jobs = {}
 
-    def register(self, kind, lyrics):
+    def register(self, kind, lyrics, *, audit=True):
         if any(job.state in ACTIVE for job in self.jobs.values()):
             raise RuntimeError("another job is active")
         if len(self.jobs) >= 12:
             del self.jobs[next(iter(self.jobs))]
-        job = Job(uuid4().hex, kind, lyrics)
+        options = self.options
+        if not audit and options.audit_model:
+            options = replace(options, audit_model=None)
+        job = Job(uuid4().hex, kind, lyrics, options)
         self.jobs[job.id] = job
         job.expiry = asyncio.get_running_loop().call_later(60, self.expire, job)
         return job
@@ -173,7 +177,7 @@ class SyncJobs:
         cache_key = None
         if self.cache:
             try:
-                cache_key = await asyncio.to_thread(self.cache.key, self.options, media, input_format, job.lyrics)
+                cache_key = await asyncio.to_thread(self.cache.key, job.options, media, input_format, job.lyrics)
             except (OSError, ValueError, ImportError):
                 LOG.debug("Synchronization cache key unavailable", exc_info=True)
             if job.cancellation.is_set():
@@ -185,7 +189,7 @@ class SyncJobs:
                 self.finish(job, "succeeded")
                 return
         try:
-            code = await run_worker(self.options.command(directory, media, input_format),
+            code = await run_worker(job.options.command(directory, media, input_format),
                                     directory / "worker.log", job.cancellation)
             if code is None:
                 state, error = "cancelled", None
