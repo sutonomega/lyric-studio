@@ -1,0 +1,303 @@
+import { useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './studio.css';
+
+type Notice = { text: string; error?: boolean };
+type Material = { name: string; url: string; video: boolean };
+type Artwork = { name: string; url: string };
+type CapturableVideo = HTMLVideoElement & { captureStream?: () => MediaStream };
+type Lyrics = { text: string; lines: [number, string][] };
+
+async function post<T>(route: string, body: BodyInit, signal: AbortSignal): Promise<T> {
+  const response = await fetch('/api/preview/' + route, { method: 'POST', body, signal });
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null);
+    throw new Error(typeof failure?.detail === 'string' ? failure.detail : '読み込みに失敗しました。');
+  }
+  return response.json();
+}
+
+function extension(file: File) {
+  return /\.([^.]+)$/.exec(file.name)?.[1].toLowerCase();
+}
+
+function checkPlayback(url: string, video: boolean, signal: AbortSignal) {
+  const player = document.createElement(video ? 'video' : 'audio');
+  const limit = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      player.removeAttribute('src');
+      player.load();
+      limit.removeEventListener('abort', cancel);
+    };
+    const cancel = () => {
+      cleanup();
+      reject(new Error('ブラウザで素材を読み込めませんでした。'));
+    };
+    limit.throwIfAborted();
+    limit.addEventListener('abort', cancel, { once: true });
+    player.preload = 'auto';
+    const rejectPlayback = () => {
+      cleanup();
+      reject(new Error('このブラウザで再生できないコーデックか、破損した素材です。'));
+    };
+    player.addEventListener('loadeddata', () => {
+      if (player instanceof HTMLVideoElement) {
+        if (player.videoWidth === 0) {
+          rejectPlayback();
+          return;
+        }
+        const stream = (player as CapturableVideo).captureStream?.();
+        if (stream) {
+          const hasAudio = stream.getAudioTracks().length > 0;
+          for (const track of stream.getTracks()) track.stop();
+          if (!hasAudio) {
+            cleanup();
+            reject(new Error('このブラウザで再生できない音声コーデックです。'));
+            return;
+          }
+        }
+      }
+      cleanup();
+      resolve();
+    }, { once: true });
+    player.addEventListener('error', rejectPlayback, { once: true });
+    player.src = url;
+  });
+}
+
+async function checkImage(file: File, url: string) {
+  const signature = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  const png = [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => signature[i] === byte);
+  const jpeg = signature[0] === 255 && signature[1] === 216 && signature[2] === 255;
+  const kind = extension(file);
+  if (!(kind === 'png' && png) && !((kind === 'jpg' || kind === 'jpeg') && jpeg)) {
+    throw new Error('PNG または JPEG の画像を選んでください。');
+  }
+  const image = new Image();
+  image.src = url;
+  await image.decode().catch(() => { throw new Error('画像が破損しているため表示できません。'); });
+}
+
+function failure(error: unknown): Notice {
+  return { text: error instanceof Error ? error.message : '読み込みに失敗しました。', error: true };
+}
+
+function FileChoice({ id, accept, label, select, disabled = false }: {
+  id: string; accept: string; label: string; select: (file: File) => void; disabled?: boolean;
+}) {
+  return <label className={disabled ? 'file-control disabled' : 'file-control'}>
+    {label}
+    <input id={id} type="file" accept={accept} disabled={disabled} onChange={(event) => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = '';
+      if (file) select(file);
+    }} />
+  </label>;
+}
+
+function Status({ notice }: { notice?: Notice }) {
+  return notice && <p className={notice.error ? 'notice error' : 'notice'} role={notice.error ? 'alert' : 'status'}>
+    {notice.text}
+  </p>;
+}
+
+function timestamp(value: number) {
+  const seconds = Math.floor(value);
+  return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
+function App() {
+  const [material, setMaterial] = useState<Material>();
+  const [artwork, setArtwork] = useState<Artwork>();
+  const [mediaNotice, setMediaNotice] = useState<Notice>();
+  const [imageNotice, setImageNotice] = useState<Notice>();
+  const [lyricNotice, setLyricNotice] = useState<Notice>();
+  const [text, setText] = useState('');
+  const [lines, setLines] = useState<Lyrics['lines']>([]);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const player = useRef<HTMLMediaElement | null>(null);
+  const mediaRequest = useRef<AbortController | null>(null);
+  const imageRequest = useRef<AbortController | null>(null);
+  const lyricRequest = useRef<AbortController | null>(null);
+  const typingTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => { if (material) URL.revokeObjectURL(material.url); }, [material]);
+  useEffect(() => () => { if (artwork) URL.revokeObjectURL(artwork.url); }, [artwork]);
+  useEffect(() => () => {
+    mediaRequest.current?.abort();
+    imageRequest.current?.abort();
+    lyricRequest.current?.abort();
+    window.clearTimeout(typingTimer.current);
+  }, []);
+
+  async function chooseMedia(file: File) {
+    mediaRequest.current?.abort();
+    const kind = extension(file);
+    if (kind !== 'mp4' && kind !== 'mp3' && kind !== 'wav') {
+      setMediaNotice({ text: 'MP4・MP3・WAV を選んでください。', error: true });
+      return;
+    }
+    const request = new AbortController();
+    mediaRequest.current = request;
+    const video = kind === 'mp4';
+    const url = URL.createObjectURL(file);
+    let accepted = false;
+    setMediaNotice({ text: '素材を確認中…' });
+    try {
+      await post('media/' + kind, file, request.signal);
+      await checkPlayback(url, video, request.signal);
+      request.signal.throwIfAborted();
+      player.current?.pause();
+      setPlaying(false);
+      setPosition(0);
+      setDuration(0);
+      setMaterial({ name: file.name, video, url });
+      setMediaNotice(undefined);
+      accepted = true;
+    } catch (error) {
+      if (!request.signal.aborted) setMediaNotice(failure(error));
+    } finally {
+      if (!accepted) URL.revokeObjectURL(url);
+    }
+  }
+
+  async function chooseImage(file: File) {
+    imageRequest.current?.abort();
+    const request = new AbortController();
+    imageRequest.current = request;
+    const url = URL.createObjectURL(file);
+    setImageNotice({ text: '画像を確認中…' });
+    try {
+      await checkImage(file, url);
+      request.signal.throwIfAborted();
+      setArtwork({ name: file.name, url });
+      setImageNotice(undefined);
+    } catch (error) {
+      URL.revokeObjectURL(url);
+      if (!request.signal.aborted) setImageNotice(failure(error));
+    }
+  }
+
+  async function loadLyrics(source: 'text' | 'txt', value: string | File, request: AbortController) {
+    try {
+      const result = await post<Lyrics>('lyrics/' + source, value, request.signal);
+      request.signal.throwIfAborted();
+      if (source === 'txt') setText(result.text);
+      setLines(result.lines);
+      setLyricNotice(result.lines.length ? undefined : { text: '字幕にする歌詞がありません。' });
+    } catch (error) {
+      if (!request.signal.aborted) setLyricNotice(failure(error));
+    }
+  }
+
+  function startLyricsRequest() {
+    window.clearTimeout(typingTimer.current);
+    lyricRequest.current?.abort();
+    lyricRequest.current = new AbortController();
+    return lyricRequest.current;
+  }
+
+  function enterLyrics(value: string) {
+    const request = startLyricsRequest();
+    setText(value);
+    setLines([]);
+    setLyricNotice(undefined);
+    if (value.trim()) typingTimer.current = window.setTimeout(() => void loadLyrics('text', value, request), 180);
+  }
+
+  function importLyrics(file: File) {
+    if (extension(file) !== 'txt') {
+      setLyricNotice({ text: 'TXT ファイルを選んでください。', error: true });
+      return;
+    }
+    const request = startLyricsRequest();
+    setLyricNotice({ text: 'TXT を読み込み中…' });
+    void loadLyrics('txt', file, request);
+  }
+
+  function togglePlayback() {
+    const media = player.current;
+    if (!media) return;
+    if (media.paused) void media.play().catch(() => setMediaNotice({ text: '素材を再生できませんでした。', error: true }));
+    else media.pause();
+  }
+
+  function seek(value: number) {
+    if (player.current) player.current.currentTime = value;
+    setPosition(value);
+  }
+
+  const mediaProps = {
+    ref: (node: HTMLMediaElement | null) => { player.current = node; },
+    src: material?.url,
+    preload: 'metadata',
+    onLoadedMetadata: (event: React.SyntheticEvent<HTMLMediaElement>) => setDuration(event.currentTarget.duration),
+    onTimeUpdate: (event: React.SyntheticEvent<HTMLMediaElement>) => setPosition(event.currentTarget.currentTime),
+    onPlay: () => setPlaying(true),
+    onPause: () => setPlaying(false),
+    onError: () => setMediaNotice({ text: '素材を再生できませんでした。', error: true }),
+  };
+  const seekable = Number.isFinite(duration) && duration > 0;
+
+  return <>
+    <header className="topbar">
+      <div className="brand"><span className="brand-icon" aria-hidden="true"><i /><i /><i /></span>Lyric Studio</div>
+    </header>
+    <main>
+      <section className="workspace" aria-labelledby="preview-title">
+        <div className="section-head">
+          <div>
+            <h1 id="preview-title">プレビュー</h1>
+            <p className="filename">{material?.name ?? '素材を選択してください'}</p>
+          </div>
+          <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
+        </div>
+        <div className="stage">
+          {material?.video ? <video key={material.url} {...mediaProps} playsInline /> : <>
+            {material && <audio key={material.url} {...mediaProps} />}
+            {artwork ? <img src={artwork.url} alt={artwork.name} /> :
+              <div className="stage-empty">
+                <svg viewBox="0 0 44 38" fill="none" aria-hidden="true">
+                  <rect x="2" y="2" width="40" height="34" rx="5" />
+                  <path d="m5 30 11-12 8 9 6-7 9 10M31 12h.01" />
+                </svg>
+                <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
+              </div>}
+          </>}
+        </div>
+        <div className="transport">
+          <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
+          <span className="clock">{timestamp(position)}</span>
+          <input aria-label="再生位置" type="range" min="0" max={seekable ? duration : 1} step="0.001"
+            value={position} disabled={!seekable} onChange={(event) => seek(event.currentTarget.valueAsNumber)} />
+          <span className="clock">{timestamp(seekable ? duration : 0)}</span>
+        </div>
+        <Status notice={mediaNotice} />
+        <div className="artwork">
+          <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.name ?? 'PNG・JPEG'}</p></div>
+          <FileChoice id="image-file" label="画像を選ぶ" accept=".png,.jpg,.jpeg" select={chooseImage} disabled={material?.video} />
+        </div>
+        {!material?.video && <Status notice={imageNotice} />}
+      </section>
+      <section className="lyric-panel" aria-labelledby="lyrics-title">
+        <div className="section-head">
+          <h2 id="lyrics-title">歌詞</h2>
+          <FileChoice id="lyrics-file" label="TXTを読み込む" accept=".txt" select={importLyrics} />
+        </div>
+        <label className="editor-label" htmlFor="lyrics">歌詞テキスト</label>
+        <textarea id="lyrics" value={text} onChange={(event) => enterLyrics(event.currentTarget.value)}
+          placeholder={'[Verse]\n歌詞を貼り付けるか、TXTを読み込んでください。'} spellCheck={false} />
+        <Status notice={lyricNotice} />
+        <div className="list-head"><h3>字幕対象の行</h3><span className="count" role="status">{lines.length} 行</span></div>
+        {lines.length ? <ol className="lines" aria-label="字幕対象の行">
+          {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
+        </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
+      </section>
+    </main>
+  </>;
+}
+
+createRoot(document.getElementById('root')!).render(<App />);

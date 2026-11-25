@@ -14,6 +14,9 @@ dependencies = [
     "SudachiDict-core==20261015",
 ]
 
+[project.optional-dependencies]
+preview = ["fastapi==0.165.0", "uvicorn==0.54.0"]
+
 [project.scripts]
 lyric-sync-pilot = "lyric_studio.cli:main"
 
