@@ -153,6 +153,8 @@ export function SubtitleOutput({ cues, duration, filename, fonts, style, sample,
       <label>フォント
         <select value={style.font} disabled={!fonts?.length} onChange={event => onStyle({...style, font:event.currentTarget.value})}>
           {!fonts?.length && <option value="">{fonts ? '利用できるフォントがありません' : 'フォントを取得中'}</option>}
+          {!!fonts?.length && style.font && !fonts.includes(style.font) &&
+            <option value={style.font} disabled>{style.font}（未インストール）</option>}
           {fonts?.map(font => <option key={font} value={font}>{font}</option>)}
         </select>
       </label>

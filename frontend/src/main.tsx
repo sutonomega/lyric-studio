@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SyncPanel } from './SyncPanel';
+import { Projects, type ProjectDocument, type AssetReference } from './Projects';
 import { SubtitleEditor } from './SubtitleEditor';
 import { defaultStyle, SubtitleOutput, SubtitleOverlay } from './SubtitleOutput';
 import { commit, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
@@ -114,6 +115,9 @@ function timestamp(value: number) {
 }
 
 function App() {
+  const [title, setTitle] = useState('無題のプロジェクト');
+  const [mediaRef, setMediaRef] = useState<AssetReference | null>(null);
+  const [imageRef, setImageRef] = useState<AssetReference | null>(null);
   const [material, setMaterial] = useState<Material>();
   const [artwork, setArtwork] = useState<Artwork>();
   const [mediaNotice, setMediaNotice] = useState<Notice>();
@@ -156,7 +160,7 @@ function App() {
         if (request.signal.aborted) return;
         setFonts(families);
         const preferred = ['Meiryo UI', 'Yu Gothic UI', 'Noto Sans JP'].find(font => families.includes(font));
-        setStyle(previous => ({ ...previous, font: preferred ?? families[0] ?? '' }));
+        setStyle(previous => previous.font ? previous : { ...previous, font: preferred ?? families[0] ?? '' });
       })
       .catch(() => { if (!request.signal.aborted) setFonts([]); });
     return () => request.abort();
@@ -170,7 +174,7 @@ function App() {
     window.clearTimeout(typingTimer.current);
   }, []);
 
-  async function chooseMedia(file: File) {
+  async function chooseMedia(file: File, replace = false) {
     mediaRequest.current?.abort();
     const kind = extension(file);
     if (kind !== 'mp4' && kind !== 'mp3' && kind !== 'wav') {
@@ -184,18 +188,27 @@ function App() {
     let accepted = false;
     setMediaNotice({ text: '素材を確認中…' });
     try {
-      const result = await post<{ waveform: WaveformData | null }>('media/' + kind, file, request.signal);
+      const result = await post<{ waveform: WaveformData | null; sha256: string }>('media/' + kind, file, request.signal);
+      const same = !!mediaRef && result.sha256 === mediaRef.sha256;
+      if (mediaRef && !material && !same && !replace) throw Error('保存時と同じ素材を選んでください。移動や改名したファイルも選べます。');
       await checkPlayback(url, video, request.signal);
       request.signal.throwIfAborted();
       player.current?.pause();
       setPlaying(false);
+      if (!same && track.cues.length && !window.confirm('素材を差し替えると現在の字幕がリセットされます。続けますか？')) {
+        setMediaNotice(undefined);
+        return;
+      }
       setPosition(0);
-      setDuration(0);
+      if (!same) {
+        setDuration(0);
+        setHistory(emptyHistory());
+        setSelection(undefined);
+        setEditError(undefined);
+      }
+      setMediaRef({ name: file.name, sha256: result.sha256 });
       setMaterial({ file, video, url, waveform: result.waveform });
       markSourceChanged();
-      setHistory(emptyHistory());
-      setSelection(undefined);
-      setEditError(undefined);
       setMediaNotice(undefined);
       accepted = true;
     } catch (error) {
@@ -205,7 +218,7 @@ function App() {
     }
   }
 
-  async function chooseImage(file: File) {
+  async function chooseImage(file: File, replace = false) {
     imageRequest.current?.abort();
     const request = new AbortController();
     imageRequest.current = request;
@@ -213,7 +226,11 @@ function App() {
     setImageNotice({ text: '画像を確認中…' });
     try {
       await checkImage(file, url);
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+      const sha256 = Array.from(digest, value => value.toString(16).padStart(2, '0')).join('');
       request.signal.throwIfAborted();
+      if (imageRef && !artwork && !replace && imageRef.sha256 !== sha256) throw Error('保存時と同じ背景画像を選んでください。');
+      setImageRef({ name: file.name, sha256 });
       setArtwork({ file, url });
       setImageNotice(undefined);
     } catch (error) {
@@ -263,6 +280,29 @@ function App() {
     void loadLyrics('txt', file, request);
   }
 
+  function restoreProject(project?: ProjectDocument) {
+    mediaRequest.current?.abort();
+    imageRequest.current?.abort();
+    player.current?.pause();
+    setPlaying(false);
+    setPosition(0);
+    setDuration((project?.duration_ms ?? 0) / 1000);
+    setMaterial(undefined);
+    setArtwork(undefined);
+    setMediaRef(project?.media ?? null);
+    setImageRef(project?.image ?? null);
+    setMediaNotice(undefined);
+    setImageNotice(undefined);
+    setSelection(undefined);
+    setEditError(undefined);
+    setShowSample(false);
+    setTitle(project?.title ?? '無題のプロジェクト');
+    setHistory({ ...emptyHistory(), current: { cues: project?.cues ?? [] } });
+    setStyle(project?.style ?? { ...defaultStyle, font: fonts?.includes('Meiryo UI') ? 'Meiryo UI' : fonts?.[0] ?? '' });
+    setVideoRatio(project?.video_ratio ?? '16:9');
+    enterLyrics(project?.lyrics ?? '');
+  }
+
   function togglePlayback() {
     const media = player.current;
     if (!media) return;
@@ -308,7 +348,7 @@ function App() {
     onPause: () => setPlaying(false),
     onError: () => setMediaNotice({ text: '素材を再生できませんでした。', error: true }),
   };
-  const seekable = Number.isFinite(duration) && duration > 0;
+  const seekable = !!material && Number.isFinite(duration) && duration > 0;
 
   return <>
     <header className="topbar">
@@ -322,14 +362,22 @@ function App() {
       event.preventDefault();
       navigateHistory(key === 'y' || event.shiftKey);
     }}>
+      <Projects document={{title, lyrics:text, cues:track.cues, style, video_ratio:videoRatio,
+        duration_ms:Math.round(duration * 1000) || 0, media:mediaRef, image:imageRef}}
+        onTitle={setTitle} onLoad={restoreProject} />
       <div className="preview-column">
         <section className="workspace" aria-labelledby="preview-title">
           <div className="section-head">
             <div>
               <h1 id="preview-title">プレビュー</h1>
-              <p className="filename">{material?.file.name ?? '素材を選択してください'}</p>
+              <p className="filename">{material?.file.name ?? (mediaRef ? '再リンク待ち · ' + mediaRef.name : '素材を選択してください')}</p>
             </div>
-            <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
+            <div className="edit-actions">
+              <FileChoice id="media-file" label={!material && mediaRef ? '元の素材を再リンク' : '動画・音声を選ぶ'}
+                accept=".mp4,.mp3,.wav" select={chooseMedia} />
+              {!material && mediaRef && <FileChoice id="replace-media" label="別の素材を選ぶ" accept=".mp4,.mp3,.wav"
+                select={file => void chooseMedia(file, true)} />}
+            </div>
           </div>
           <div className={videoRatio === '9:16' ? 'stage portrait' : 'stage'}>
             {material?.video ? <video key={material.url} {...mediaProps} playsInline /> : <>
@@ -358,8 +406,13 @@ function App() {
           </div>
           <Status notice={mediaNotice} />
           <div className="artwork">
-            <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.file.name ?? 'PNG・JPEG'}</p></div>
-            <FileChoice id="image-file" label="画像を選ぶ" accept=".png,.jpg,.jpeg" select={chooseImage} disabled={material?.video} />
+            <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.file.name ?? (imageRef ? '再リンク待ち · ' + imageRef.name : 'PNG・JPEG')}</p></div>
+            <div className="edit-actions">
+              <FileChoice id="image-file" label={!artwork && imageRef ? '背景画像を再リンク' : '画像を選ぶ'} accept=".png,.jpg,.jpeg"
+                select={chooseImage} disabled={material?.video} />
+              {!artwork && imageRef && !material?.video && <FileChoice id="replace-image" label="別の画像を選ぶ"
+                accept=".png,.jpg,.jpeg" select={file => void chooseImage(file, true)} />}
+            </div>
           </div>
           {!material?.video && <Status notice={imageNotice} />}
         </section>
