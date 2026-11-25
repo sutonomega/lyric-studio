@@ -5,11 +5,12 @@ import { SubtitleEditor } from './SubtitleEditor';
 import { defaultStyle, SubtitleOutput, SubtitleOverlay } from './SubtitleOutput';
 import { commit, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
 import { Timeline, type WaveformData } from './Timeline';
+import { VideoOutput, type VideoRatio } from './VideoOutput';
 import './studio.css';
 
 type Notice = { text: string; error?: boolean };
 type Material = { file: File; url: string; video: boolean; waveform: WaveformData | null };
-type Artwork = { name: string; url: string };
+type Artwork = { file: File; url: string };
 type CapturableVideo = HTMLVideoElement & { captureStream?: () => MediaStream };
 type Lyrics = { text: string; lines: [number, string][] };
 
@@ -127,6 +128,7 @@ function App() {
   const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
   const [history, setHistory] = useState(emptyHistory);
   const [style, setStyle] = useState(defaultStyle);
+  const [videoRatio, setVideoRatio] = useState<VideoRatio>('16:9');
   const [fonts, setFonts] = useState<string[]>();
   const [showSample, setShowSample] = useState(false);
   const [selection, setSelection] = useState<string>();
@@ -212,7 +214,7 @@ function App() {
     try {
       await checkImage(file, url);
       request.signal.throwIfAborted();
-      setArtwork({ name: file.name, url });
+      setArtwork({ file, url });
       setImageNotice(undefined);
     } catch (error) {
       URL.revokeObjectURL(url);
@@ -329,10 +331,10 @@ function App() {
             </div>
             <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
           </div>
-          <div className="stage">
+          <div className={videoRatio === '9:16' ? 'stage portrait' : 'stage'}>
             {material?.video ? <video key={material.url} {...mediaProps} playsInline /> : <>
               {material && <audio key={material.url} {...mediaProps} />}
-              {artwork ? <img src={artwork.url} alt={artwork.name} /> :
+              {artwork ? <img src={artwork.url} alt={artwork.file.name} /> :
                 <div className="stage-empty">
                   <svg viewBox="0 0 44 38" fill="none" aria-hidden="true">
                     <rect x="2" y="2" width="40" height="34" rx="5" />
@@ -352,10 +354,11 @@ function App() {
             <span className="clock">{timestamp(seekable ? duration : 0)}</span>
             {seekable && <a className="timeline-link" href="#timeline-title">タイムライン</a>}
             <a className="timeline-link" href="#style-title">字幕スタイル</a>
+            <a className="timeline-link" href="#video-output-title">MP4出力</a>
           </div>
           <Status notice={mediaNotice} />
           <div className="artwork">
-            <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.name ?? 'PNG・JPEG'}</p></div>
+            <div><h2>背景画像</h2><p className="filename">{material?.video ? 'MP4の映像を使用しています' : artwork?.file.name ?? 'PNG・JPEG'}</p></div>
             <FileChoice id="image-file" label="画像を選ぶ" accept=".png,.jpg,.jpeg" select={chooseImage} disabled={material?.video} />
           </div>
           {!material?.video && <Status notice={imageNotice} />}
@@ -386,6 +389,8 @@ function App() {
         <SubtitleOutput cues={track.cues} duration={duration} filename={material?.file.name ?? 'subtitles'}
           fonts={fonts} style={style} sample={previewSample} onStyle={setStyle}
           onToggleSample={() => setShowSample(value => !value)} />
+        <VideoOutput media={material?.file} image={artwork?.file} duration={duration} cues={track.cues}
+          style={style} ratio={videoRatio} onRatio={setVideoRatio} />
       </section>
       <Timeline key={material?.url} duration={duration} position={position} waveform={material?.waveform}
         cues={track.cues} selected={selected} onSelect={selectCue} onSeek={seek}

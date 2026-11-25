@@ -96,6 +96,29 @@ def stop_worker_tree(process):
             pass
 
 
+async def run_worker(command, log_path, cancellation, *, cwd=None):
+    if cancellation.is_set():
+        return None
+    with log_path.open("wb") as log:
+        process = subprocess.Popen(
+            command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            start_new_session=os.name != "nt",
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+    completed = asyncio.create_task(asyncio.to_thread(process.wait))
+    cancelled = asyncio.create_task(cancellation.wait())
+    try:
+        await asyncio.wait((completed, cancelled), return_when=asyncio.FIRST_COMPLETED)
+        if cancellation.is_set():
+            try:
+                await asyncio.to_thread(stop_worker_tree, process)
+            finally:
+                await completed
+            return None
+        return completed.result()
+    finally:
+        cancelled.cancel()
+
 class SyncJobs:
     def __init__(self, options):
         self.options = options
@@ -139,38 +162,21 @@ class SyncJobs:
 
     async def run(self, job, media, input_format):
         directory = media.parent
-        exit_wait = None
-        cancel_wait = None
         try:
-            with (directory / "worker.log").open("wb") as log:
-                process = subprocess.Popen(
-                    self.options.command(directory, media, input_format),
-                    stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                    start_new_session=os.name != "nt",
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-            exit_wait = asyncio.create_task(asyncio.to_thread(process.wait))
-            cancel_wait = asyncio.create_task(job.cancellation.wait())
-            await asyncio.wait((exit_wait, cancel_wait), return_when=asyncio.FIRST_COMPLETED)
-            if job.cancellation.is_set():
-                await asyncio.to_thread(stop_worker_tree, process)
-                await exit_wait
+            code = await run_worker(self.options.command(directory, media, input_format),
+                                    directory / "worker.log", job.cancellation)
+            if code is None:
                 state, error = "cancelled", None
-            elif exit_wait.result():
+            elif code:
                 stage = job.snapshot()["stage"]
-                state, error = "failed", f"{stage}に失敗しました（終了コード {exit_wait.result()}）。"
+                state, error = "failed", f"{stage}に失敗しました（終了コード {code}）。"
             else:
                 result = json.loads((directory / "result" / "sync.json").read_text(encoding="utf-8"))
                 job.cues = result["lines"]
                 state, error = "succeeded", None
         except (OSError, ValueError, KeyError, RuntimeError):
             LOG.exception("Synchronization worker failed")
-            if exit_wait and not exit_wait.done():
-                await exit_wait
             state, error = "failed", "同期処理を完了できませんでした。起動設定と素材を確認してください。"
-        finally:
-            if cancel_wait:
-                cancel_wait.cancel()
         self.finish(job, state, error)
 
     async def close(self):

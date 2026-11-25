@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -20,58 +20,13 @@ import uvicorn
 
 from .fonts import japanese_fonts
 from .jobs import SyncJobs, SyncOptions
-from .media import extract_waveform
+from .local_io import MAX_LYRIC_BYTES, copy_media, limited_chunks, require_local_request
+from .media import MEDIA_FORMATS, extract_waveform
+from .subtitle_schema import SubtitleRequest
+from .video_export import VideoJobs
+from .video_routes import video_routes
 from .subtitle_export import export_subtitles
 from .sync.align import lyric_lines
-
-
-MAX_MEDIA_BYTES = 2 * 1024 ** 3
-MAX_LYRIC_BYTES = 1024 ** 2
-MEDIA_FORMATS = {"mp4": "mov", "mp3": "mp3", "wav": "wav"}
-
-COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
-
-
-class SubtitleStyle(BaseModel):
-    font: str = Field(min_length=1, max_length=64)
-    size: int = Field(ge=16, le=144)
-    color: str = Field(pattern=COLOR_PATTERN)
-    opacity: int = Field(ge=0, le=100)
-    outline: int = Field(ge=0, le=12)
-    outline_color: str = Field(pattern=COLOR_PATTERN)
-    shadow: int = Field(ge=0, le=18)
-    letter_spacing: int = Field(ge=0, le=20)
-    line_spacing: int = Field(ge=0, le=64)
-    anchor: int = Field(ge=1, le=9)
-    fade_in: int = Field(ge=0, le=2000)
-    fade_out: int = Field(ge=0, le=2000)
-
-
-class SubtitleCue(BaseModel):
-    text: str
-    start_ms: int | None
-    end_ms: int | None
-
-
-class SubtitleRequest(BaseModel):
-    duration_ms: int = Field(gt=0)
-    cues: list[SubtitleCue]
-    skip_excluded: bool = False
-    style: SubtitleStyle | None = None
-
-
-def require_local_request(request):
-    if request.headers.get("origin") != f'http://{request.headers.get("host")}':
-        raise HTTPException(403, "Lyric Studio の画面から操作してください。")
-
-
-async def limited_chunks(request, limit):
-    size = 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            raise HTTPException(413, "ファイルが大きすぎます。")
-        yield chunk
 
 
 def inspect_media(ffprobe, path, kind):
@@ -118,26 +73,20 @@ def decode_lyrics(data, encoding):
     return text
 
 
-async def copy_media(request, target, cancellation=None):
-    with target.open("wb") as output:
-        async for chunk in limited_chunks(request, MAX_MEDIA_BYTES):
-            if cancellation and cancellation.is_set():
-                return
-            await run_in_threadpool(output.write, chunk)
-
-
 def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
     jobs = SyncJobs(sync_options)
+    video = VideoJobs(ffmpeg, ffprobe)
 
     @asynccontextmanager
     async def lifespan(_app):
         try:
             yield
         finally:
-            await jobs.close()
+            await asyncio.gather(jobs.close(), video.close())
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    app.include_router(video_routes(video))
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/")
