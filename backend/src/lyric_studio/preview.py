@@ -163,7 +163,8 @@ def create_app(dist, ffprobe, sync_options=None, ffmpeg=None, data_dir=None):
     async def config():
         if not sync_options:
             return {"available": False}
-        return {"available": True, "profile": sync_options.profile, "device": sync_options.device}
+        return {"available": True, "profile": sync_options.profile, "device": sync_options.device,
+                "audit": bool(sync_options.audit_model)}
 
     @app.post("/api/sync/jobs", status_code=201)
     async def register(request: Request):
@@ -249,6 +250,7 @@ def main():
     parser.add_argument("--small-model", type=Path, help="enable synchronization with a local Whisper small model")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--turbo-model", type=Path)
+    parser.add_argument("--audit-model", type=Path, help="enable additional checks with a separate local model")
     parser.add_argument("--demucs-python", type=Path)
     parser.add_argument("--data-dir", type=Path, help="local project and sync-cache storage")
     parser.add_argument("--port", type=int, default=8769)
@@ -259,22 +261,28 @@ def main():
         parser.error("ffprobe is required (add it to PATH or pass --ffprobe)")
     if bool(args.turbo_model) != bool(args.demucs_python) or (args.turbo_model and not args.small_model):
         parser.error("refinement requires --small-model, --turbo-model and --demucs-python")
+    if args.audit_model and not args.turbo_model:
+        parser.error("--audit-model requires refinement")
     ffmpeg = args.ffmpeg or args.ffprobe.with_name("ffmpeg" + args.ffprobe.suffix)
     ffmpeg = ffmpeg.resolve() if ffmpeg.is_file() else None
     if args.ffmpeg and not ffmpeg:
         parser.error("--ffmpeg must point to the FFmpeg executable")
     options = None
     if args.small_model:
-        models = [model for model in (args.small_model, args.turbo_model) if model]
+        models = [model for model in (args.small_model, args.turbo_model, args.audit_model) if model]
         if any(not (model / "model.bin").is_file() for model in models):
             parser.error("model.bin was not found in a specified model directory")
+        if args.audit_model and any((args.audit_model / "model.bin").samefile(model / "model.bin")
+                                    for model in (args.small_model, args.turbo_model)):
+            parser.error("--audit-model must use a different model from --small-model and --turbo-model")
         if args.demucs_python and not args.demucs_python.is_file():
             parser.error("--demucs-python must point to a separation environment")
         if not ffmpeg:
             parser.error("ffmpeg is required for synchronization (pass --ffmpeg)")
         options = SyncOptions(ffmpeg, args.small_model.resolve(), args.device,
                               args.turbo_model and args.turbo_model.resolve(),
-                              args.demucs_python and args.demucs_python.resolve())
+                              args.demucs_python and args.demucs_python.resolve(),
+                              args.audit_model and args.audit_model.resolve())
     uvicorn.run(create_app(args.dist.resolve(), args.ffprobe.resolve(), options, ffmpeg, args.data_dir),
                 host="127.0.0.1", port=args.port, proxy_headers=False)
 

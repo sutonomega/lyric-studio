@@ -22,6 +22,7 @@ STAGES = {
     "recognize_vocals": "分離したボーカルの音声認識",
     "recognize_turbo": "別モデルによる音声認識",
     "refine": "字幕候補の補正",
+    "audit": "別モデルで追加確認",
     "write": "字幕候補の生成",
 }
 LOG = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class SyncOptions:
     device: str = "cpu"
     turbo_model: Path | None = None
     demucs_python: Path | None = None
+    audit_model: Path | None = None
 
     @property
     def profile(self):
@@ -49,6 +51,8 @@ class SyncOptions:
         ]
         if self.turbo_model:
             command += ["--turbo-model", str(self.turbo_model), "--demucs-python", str(self.demucs_python)]
+        if self.audit_model:
+            command += ["--audit-model", str(self.audit_model)]
         return command
 
 
@@ -62,6 +66,7 @@ class Job:
     error: str | None = None
     cues: list | None = None
     cache_hit: bool = False
+    audit_failed: bool = False
     directory: TemporaryDirectory | None = None
     task: asyncio.Task | None = None
     expiry: asyncio.TimerHandle | None = None
@@ -77,7 +82,8 @@ class Job:
             for phase in stages:
                 self.stage = STAGES.get(phase, self.stage)
         return {"id": self.id, "state": self.state, "stage": self.stage,
-                "error": self.error, "cues": self.cues, "cache_hit": self.cache_hit}
+                "error": self.error, "cues": self.cues, "cache_hit": self.cache_hit,
+                "audit_failed": self.audit_failed}
 
 
 def stop_worker_tree(process):
@@ -189,7 +195,8 @@ class SyncJobs:
             else:
                 result = json.loads((directory / "result" / "sync.json").read_text(encoding="utf-8"))
                 job.cues = result["lines"]
-                if self.cache and not job.cancellation.is_set():
+                job.audit_failed = result.get("audit_failed", False)
+                if self.cache and not job.audit_failed and not job.cancellation.is_set():
                     try:
                         self.cache.save(cache_key, job.cues)
                     except OSError:

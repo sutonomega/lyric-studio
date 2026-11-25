@@ -1,10 +1,15 @@
 import copy
+from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 from lyric_studio.auto_evaluation import check_cues, foreground_activity, shifted_timing_control
+from lyric_studio.cli import audit_lines
 from lyric_studio.evaluation import compare_profiles, score, summarize
+from lyric_studio.subtitle_export import render_srt
 
 
 def cue(number, start, end, status):
@@ -16,6 +21,34 @@ def label(number, start, end, status):
 
 
 class AutomaticAuditTests(unittest.TestCase):
+    def test_sync_audit_adds_reasons_without_altering_subtitles(self):
+        primary = [dict(cue(1, 3000, 5200, "candidate"), text="そら")]
+        alternate = [dict(primary[0], start_ms=3800, match_coverage=.9)]
+        original_srt = render_srt(primary)
+        original_cues = copy.deepcopy(primary)
+        report = {"duration_ms": 6000}
+        args = SimpleNamespace(audit_model=Path("medium"), device="cpu")
+        samples = np.full(16000 * 6, .1, dtype=np.float32)
+        with (patch("lyric_studio.cli.load_model"), patch("lyric_studio.cli.transcribe") as transcribe,
+              patch("lyric_studio.cli.align_lyrics", return_value=alternate)):
+            audit_lines(args, primary, report, "そら", samples, samples, "int8")
+        self.assertEqual(transcribe.call_args.kwargs["seed"], 0)
+        self.assertEqual(render_srt(primary), original_srt)
+        self.assertEqual(primary[0].pop("audit")["reasons"], ["boundary_disagreement"])
+        self.assertEqual(primary, original_cues)
+        self.assertEqual(report["audit"]["counts"]["review"], 1)
+
+    def test_sync_audit_failure_keeps_usable_subtitles(self):
+        primary = [dict(cue(1, 3000, 5200, "candidate"), text="そら")]
+        original_cues = copy.deepcopy(primary)
+        report = {"duration_ms": 6000}
+        args = SimpleNamespace(audit_model=Path("medium"), device="cpu")
+        with (patch("lyric_studio.cli.load_model", side_effect=RuntimeError("inference unavailable")),
+              patch("sys.stderr")):
+            audit_lines(args, primary, report, "そら", None, None, "int8")
+        self.assertEqual(primary, original_cues)
+        self.assertTrue(report["audit_failed"])
+
     def test_checks_alignment_and_voice_activity_with_shift_control(self):
         primary = [dict(cue(1, 3000, 5200, "candidate"), text="そら"),
                    dict(cue(2, 6500, 8000, "review"), text="うみ"),

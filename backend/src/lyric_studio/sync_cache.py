@@ -70,6 +70,8 @@ class SyncCache:
             "implementation": [pinned_file(code / name) for name in ("cli.py", "media.py", "sync/align.py", "sync/refine.py")],
             "cuda_libraries": os.environ.get("PATH", "") if options.device == "cuda" else None,
         }
+        if options.audit_model:
+            inputs["audit"] = [model_files(options.audit_model), pinned_file(code / "auto_evaluation.py")]
         return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode("utf-8")).hexdigest()
 
     def load(self, key):

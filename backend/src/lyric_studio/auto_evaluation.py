@@ -11,8 +11,6 @@ from time import perf_counter
 
 import numpy as np
 
-from .cli import decode, load_model, read_pcm, sha256_file, transcribe
-from .evaluation import read_json, write_new
 from .sync.align import align_lyrics
 
 
@@ -104,6 +102,9 @@ def shifted_timing_control(rows, duration, shift=2000):
 
 
 def main():
+    from .cli import decode, load_model, read_pcm, sha256_file, transcribe
+    from .evaluation import read_json, write_new
+
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("sync", "media", "lyrics", "vocals", "check_model", "output"):
         parser.add_argument(name, type=Path)

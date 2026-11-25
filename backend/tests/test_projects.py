@@ -83,12 +83,17 @@ class CacheTests(unittest.TestCase):
             weights = model / "model.bin"
             weights.write_bytes(b"weight")
             options = SimpleNamespace(device="cpu", ffmpeg=binary, small_model=model,
-                                      turbo_model=None, demucs_python=None)
+                                      turbo_model=None, demucs_python=None, audit_model=None)
             cache = SyncCache(root / "results")
             key = cache.key(options, source, "wav", "歌詞")
             self.assertIsNone(cache.load(key))
             cache.save(key, [{"id": "line-1"}])
             self.assertEqual(cache.load(key), [{"id": "line-1"}])
+            options.audit_model = model
+            audit_key = cache.key(options, source, "wav", "歌詞")
+            self.assertNotEqual(audit_key, key)
+            self.assertIsNone(cache.load(audit_key))
+            options.audit_model = None
             self.assertNotEqual(cache.key(options, source, "wav", "別の歌詞"), key)
             source.write_bytes(b"another source")
             self.assertNotEqual(cache.key(options, source, "wav", "歌詞"), key)
