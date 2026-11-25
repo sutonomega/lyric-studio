@@ -15,4 +15,6 @@ Windows 11で、日本語の入力歌詞を楽曲に同期し、編集して字�
 2. [Phase 1](https://github.com/sutonomega/lyric-studio/milestone/2)で実曲を使って、日本語の行同期の精度と手直し時間を比較する。
 3. [移行判定 #7](https://github.com/sutonomega/lyric-studio/issues/7)で結果を確認してから、基本UIに進む。
 
+Phase 1の再現手順は [同期CLI](backend/README.md) を参照する。
+
 作業を [Issue](https://github.com/sutonomega/lyric-studio/issues) 単位で進める。ブランチとPRは関連Issueを参照し、完了条件に対応するテスト結果とWindowsでの確認結果を残す。重要な仕様・技術の採否は実装前に該当Issueで確認する。実曲、歌詞、認識全文、正解時刻と生成物はローカルに置く。[マイルストーン](https://github.com/sutonomega/lyric-studio/milestones)

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lyric-studio-pilot"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faster-whisper==1.2.1",
+    "ctranslate2==4.9.1",
+    "numpy==2.5.5",
+    "SudachiPy==0.7.0",
+    "SudachiDict-core==20261015",
+]
+
+[project.scripts]
+lyric-sync-pilot = "lyric_studio.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lyric_studio = ["reference.html", "review.html"]

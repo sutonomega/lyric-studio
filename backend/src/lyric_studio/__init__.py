@@ -1,0 +1,1 @@
+"""Local lyric synchronization pilot."""
