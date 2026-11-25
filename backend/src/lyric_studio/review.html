@@ -109,6 +109,7 @@ dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
         <div class="detail-heading"><h2 id="detail-title">行の詳細</h2><span class="badge" id="detail-status"></span></div>
         <dl>
           <dt>字幕の時刻</dt><dd id="detail-time"></dd>
+          <dt>同期画面の判定</dt><dd id="detail-generation"></dd>
           <dt>別モデルの時刻</dt><dd id="detail-model"></dd>
           <dt>文字の対応率</dt><dd id="detail-text"></dd>
           <dt>ボーカル活動率</dt><dd id="detail-voice"></dd>
@@ -124,7 +125,9 @@ dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
         </div>
         <div class="actions" id="filters" aria-label="絞り込み">
           <button type="button" class="filter" data-state="all" aria-pressed="true">すべて</button><button type="button" class="filter" data-state="review" aria-pressed="false">要確認</button><button type="button" class="filter" data-state="supported" aria-pressed="false">裏付けあり</button><button type="button" class="filter" data-state="unplaced" aria-pressed="false">未配置</button>
+          <button type="button" class="filter" data-state="additional" aria-pressed="false">追加確認 <span id="additional-count"></span></button>
         </div>
+        <p id="additional-help" class="hint" hidden>同期画面では候補で、別モデルと音量のチェックで確認が必要になった行です。</p>
         <input type="search" id="search" placeholder="歌詞を検索" aria-label="歌詞を検索">
       </div>
       <div class="list" id="scroll"><div id="rows"></div><p id="empty" hidden>該当する行がありません。</p></div>
@@ -136,6 +139,7 @@ dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
 const get = id => document.getElementById(id);
 const tracks = JSON.parse(get('data').textContent).tracks;
 const labels = {supported:'裏付けあり', review:'要確認', unplaced:'未配置'};
+const generationLabels = {candidate:'候補', review:'要確認', unplaced:'未配置'};
 const reasons = {
   unplaced:'字幕時刻を推定できませんでした。',
   second_model_unplaced:'別モデルでは時刻を推定できませんでした。',
@@ -256,6 +260,7 @@ function detail() {
   get('detail-title').textContent=(selected+1)+'行目の詳細';
   get('detail-status').textContent=labels[c.status];get('detail-status').className='badge '+c.status;
   get('detail-time').textContent=interval(c.start_ms,c.end_ms);
+  get('detail-generation').textContent=generationLabels[c.generation_status]??'—';
   get('detail-model').textContent=interval(c.second_start_ms,c.second_end_ms);
   get('detail-text').textContent=percent(c.second_text_coverage);
   get('detail-voice').textContent=percent(c.voice_fraction);
@@ -271,11 +276,15 @@ function select(index, seek=true) {
   if(seek && track().rows[index].start_ms!=null){setPosition(track().rows[index].start_ms);}
   else show();
 }
+function matchesFilter(row, state) {
+  return state==='additional' ? row.status==='review' && row.generation_status==='candidate' :
+    state==='all' || row.status===state;
+}
 function renderList() {
   const query=get('search').value.normalize('NFKC').toLowerCase().trim(), root=get('rows');
   const fragment=document.createDocumentFragment();rowButtons=new Map();
   for(const [i,r] of track().rows.entries()){
-    if((filter!=='all'&&r.status!==filter)||(query&&!r.text.normalize('NFKC').toLowerCase().includes(query)))continue;
+    if(!matchesFilter(r,filter)||(query&&!r.text.normalize('NFKC').toLowerCase().includes(query)))continue;
     const row=document.createElement('button');row.type='button';row.className='row';
     row.dataset.index=i;row.setAttribute('aria-pressed',String(i===selected));
     const index=document.createElement('span');index.className='number';index.textContent=String(i+1).padStart(2,'0');
@@ -291,6 +300,10 @@ function renderList() {
 function changeFilter(value){
   filter=value;
   for(const button of get('filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.state===value));
+  const reviewFilter=value==='additional'?'additional':'review';
+  get('additional-help').hidden=value!=='additional';
+  get('next-review').textContent=value==='additional'?'次の追加確認':'次の要確認';
+  get('next-review').disabled=!track().rows.some(row=>matchesFilter(row,reviewFilter));
   renderList();
 }
 function changeTrack(index){
@@ -303,7 +316,7 @@ function changeTrack(index){
   get('duration').textContent=time(record.duration_ms);
   get('seek').max=record.duration_ms;
   for(const key of Object.keys(labels))get('count-'+key).textContent=record.counts[key]??0;
-  get('next-review').disabled=!record.counts.review;
+  get('additional-count').textContent=String(record.rows.filter(row=>matchesFilter(row,'additional')).length);
   makeMedia();detail();changeFilter('all');get('scroll').scrollTop=0;
 }
 async function analyzeWave(buffer, source){
@@ -330,10 +343,11 @@ get('filters').addEventListener('click',event=>{const button=event.target.closes
 get('search').addEventListener('input',renderList);
 get('rows').addEventListener('click',event=>{const row=event.target.closest('[data-index]');if(row)select(Number(row.dataset.index));});
 get('next-review').addEventListener('click',()=>{
-  const review=track().rows.flatMap((row,i)=>row.status==='review'?[i]:[]);
+  const target=filter==='additional'?'additional':'review';
+  const review=track().rows.flatMap((row,i)=>matchesFilter(row,target)?[i]:[]);
   if(!review.length)return;
   const index=review.find(i=>i>selected)??review[0];
-  get('search').value='';changeFilter('review');select(index);rowButtons.get(index)?.scrollIntoView({block:'nearest'});
+  get('search').value='';changeFilter(target);select(index);rowButtons.get(index)?.scrollIntoView({block:'nearest'});
 });
 get('source').addEventListener('change',async event=>{
   const file=event.target.files[0];if(!file)return;

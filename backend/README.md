@@ -122,4 +122,4 @@ $checkModel = & .venv/Scripts/python.exe -c 'from faster_whisper.utils import do
 python -m lyric_studio.review manifest.json review.html
 ```
 
-生成した HTML を Edge または Chrome で開き、元音源を選びます。音源の指紋が一致すると、要確認行を絞り込んで試聴できます。チェックの理由、別モデルの時刻、SRT の保存も利用できます。生成した HTML には歌詞と時刻が含まれるため、素材と同様にローカルで管理してください。
+生成した HTML を Edge または Chrome で開き、元音源を選びます。音源の指紋が一致すると、要確認行を絞り込んで試聴できます。「追加確認」は、同期画面で通常の候補になり、別モデルと音量を使ったチェックで確認対象になった行です。チェックの理由、別モデルの時刻、SRT の保存も利用できます。生成した HTML には歌詞と時刻が含まれるため、素材と同様にローカルで管理してください。

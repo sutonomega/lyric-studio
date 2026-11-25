@@ -41,6 +41,7 @@ class ReviewBundleTests(unittest.TestCase):
         track, = json.loads(payload)["tracks"]
         self.assertEqual(track["srt"], "1\n00:00:00,500 --> 00:00:01,000\n歌 </script>\n")
         self.assertEqual(track["rows"][0]["reasons"], ["boundary_disagreement"])
+        self.assertEqual(track["rows"][0]["generation_status"], "candidate")
         self.assertEqual(track["counts"], {"review": 1})
 
     def test_rejects_inconsistent_timestamps_and_different_media(self):
