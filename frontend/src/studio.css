@@ -233,3 +233,45 @@ textarea::placeholder { color: #8b95a5; }
 @media (max-width: 540px) {
   .transport { flex-wrap: wrap; }
 }
+.candidate-summary a, .timeline-selection a { color: var(--accent); }
+#subtitle-editor-title { scroll-margin-top: 124px; }
+.subtitle-editor { border-top: 1px solid var(--line); }
+.editor-heading { flex-wrap: wrap; padding-bottom: 10px; }
+.edit-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.editor-toolbar { padding: 0 17px 12px; }
+.editor-inline-error { color: #ffb3ae; font-size: 13px; }
+.offset-form .editor-inline-error { flex-basis: 100%; }
+.editor-list { border-block: 1px solid var(--line); max-height: 245px; }
+.editor-list li { padding-block: 3px; align-items: baseline; }
+.editor-list button {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+.editor-list button[aria-pressed="true"] { background: #263752; border-color: #56709a; }
+.editor-list .cue-info { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.editor-cue-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cue-status.edited { background: #20413d; color: #b2e5d9; }
+.cue-inspector, .offset-form { padding: 12px 17px; }
+.cue-inspector { display: grid; gap: 8px; }
+.cue-inspector textarea { width: 100%; min-height: 68px; margin: 0; }
+.cue-inspector > label, .cue-time-fields label, .offset-form label { font-size: 12px; color: var(--muted); }
+.cue-time-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.cue-time-fields label, .offset-form label { display: grid; gap: 4px; }
+.cue-time-fields input, .offset-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #11151d;
+  color: #f2f3f6;
+  font-variant-numeric: tabular-nums;
+}
+.editor-reasons { margin: 0; padding-left: 19px; color: #ffe0a7; font-size: 12px; }
+.offset-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; border-top: 1px solid var(--line); }
+.offset-form label { width: min(140px,100%); }

@@ -1,17 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import type { Cue } from './SyncPanel';
+import { isTimed, timeBounds, timestamp, type Cue, type TimedCue, type Boundary } from './subtitles';
 
 export type WaveformData = { duration_ms: number; peaks: number[] };
-type TimedCue = Cue & { start_ms: number; end_ms: number };
-type Boundary = 'start_ms' | 'end_ms';
 type Drag = { id: string; edge: Boundary; time: number; origin: number };
-
-function timestamp(ms: number, detailed = false) {
-  const seconds = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
-  const fraction = detailed ? '.' + String(ms % 1000).padStart(3, '0') : '';
-  return Math.floor(ms / 60000) + ':' + seconds + fraction;
-}
 
 function Waveform({ data, duration }: { data: WaveformData; duration: number }) {
   const container = useRef<HTMLDivElement>(null);
@@ -32,23 +24,24 @@ function Waveform({ data, duration }: { data: WaveformData; duration: number }) 
     <div ref={container} className="waveform" style={{ width: (data.duration_ms / duration) * 100 + '%' }} aria-hidden="true" />;
 }
 
-export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }: {
+export function Timeline({ duration, position, waveform, cues, selected, onSelect, onSeek, onEdit }: {
   duration: number;
   position: number;
   waveform?: WaveformData | null;
   cues: Cue[];
+  selected?: string;
+  onSelect: (cue: Cue) => void;
   onSeek: (seconds: number) => void;
   onEdit: (id: string, edge: Boundary, ms: number) => void;
 }) {
   const durationMs = Number.isFinite(duration) ? Math.round(duration * 1000) : 0;
   const positionMs = Math.min(durationMs, Math.max(0, Math.round(position * 1000)));
   const [zoom, setZoom] = useState(1);
-  const [selected, setSelected] = useState<string>();
   const [draft, setDraft] = useState<{ id: string; edge: Boundary; time: number }>();
   const viewport = useRef<HTMLDivElement>(null);
   const scale = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
-  const timed = cues.filter((cue): cue is TimedCue => cue.start_ms !== null && cue.end_ms !== null);
+  const timed = cues.filter(isTimed);
   const current = timed.find(cue => cue.id === selected);
   const percent = (ms: number) => (Math.min(durationMs, ms) / durationMs) * 100 + '%';
 
@@ -68,9 +61,9 @@ export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }:
   }
 
   function constrain(cue: TimedCue, edge: Boundary, ms: number) {
-    const index = timed.indexOf(cue);
-    const lower = edge === 'start_ms' ? timed[index - 1]?.end_ms ?? 0 : cue.start_ms + 1;
-    const upper = edge === 'start_ms' ? cue.end_ms - 1 : Math.min(durationMs, timed[index + 1]?.start_ms ?? durationMs);
+    const bounds = timeBounds(timed, timed.indexOf(cue), durationMs);
+    const lower = edge === 'start_ms' ? bounds.start : cue.start_ms + 1;
+    const upper = edge === 'start_ms' ? cue.end_ms - 1 : bounds.end;
     return upper < lower ? cue[edge] : Math.max(lower, Math.min(ms, upper));
   }
 
@@ -130,7 +123,7 @@ export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }:
     <div className="timeline-heading">
       <h2 id="timeline-title">タイムライン</h2>
       {durationMs > 0 && <div className="timeline-tools">
-        <output aria-label="タイムラインの再生位置">{timestamp(positionMs, true)} / {timestamp(durationMs)}</output>
+        <output aria-label="タイムラインの再生位置">{timestamp(positionMs, true)} / {timestamp(durationMs, false)}</output>
         <label>拡大 <select value={zoom} onChange={event => setZoom(Number(event.target.value))}>
           {[1, 2, 4, 8, 16].map(value => <option value={value} key={value}>{value}×</option>)}
         </select></label>
@@ -152,7 +145,7 @@ export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }:
               <p className="timeline-message">波形を取得できませんでした。</p>}
           </div>
           <div className="cue-track" aria-label="字幕トラック">
-            {!timed.length && <p className="timeline-message">同期候補をプレビューに適用すると字幕が表示されます。</p>}
+            {!timed.length && <p className="timeline-message">字幕を追加するか、同期候補を適用してください。</p>}
             {timed.map(cue => {
               const start = draft?.id === cue.id && draft.edge === 'start_ms' ? draft.time : cue.start_ms;
               const end = draft?.id === cue.id && draft.edge === 'end_ms' ? draft.time : cue.end_ms;
@@ -160,7 +153,7 @@ export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }:
               return <div key={cue.id} className={'cue-block' + (chosen ? ' selected' : '') + (activeId === cue.id ? ' current' : '')}
                 style={{ left: percent(start), width: 'calc(' + percent(end) + ' - ' + percent(start) + ')' }}>
                 <button className="cue-body" type="button" aria-pressed={chosen} title={cue.text}
-                  onClick={() => { setSelected(cue.id); onSeek(cue.start_ms / 1000); }}>{cue.text}</button>
+                  onClick={() => onSelect(cue)}>{cue.text || '（字幕なし）'}</button>
                 {chosen && handle(cue, 'start_ms')}
                 {chosen && handle(cue, 'end_ms')}
               </div>;
@@ -175,6 +168,7 @@ export function Timeline({ duration, position, waveform, cues, onSeek, onEdit }:
           {timestamp(draft?.edge === 'start_ms' ? draft.time : current.start_ms, true)} – {timestamp(draft?.edge === 'end_ms' ? draft.time : current.end_ms, true)}
         </output>
         <span className="filename">字幕の両端をドラッグして時刻を調整</span>
+        <a href="#subtitle-editor-title">字幕編集</a>
       </div>}
     </> : <p className="timeline-message">動画または音声を読み込むとタイムラインが表示されます。</p>}
   </section>;

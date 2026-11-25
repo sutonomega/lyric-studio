@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-
-export type Cue = {
-  id: string;
-  text: string;
-  start_ms: number | null;
-  end_ms: number | null;
-  status: 'candidate' | 'review' | 'unplaced';
-  reasons: string[];
-};
+import { cueStatus, cueReasons, timestamp, type Cue } from './subtitles';
 
 type Job = {
   id: string;
@@ -19,24 +11,6 @@ type Job = {
 };
 
 type Config = { available: boolean; profile?: 'baseline' | 'refined'; device?: 'cpu' | 'cuda' };
-
-const status = { candidate: '候補', review: '要確認', unplaced: '未配置' };
-const reasons: Record<string, string> = {
-  partial_text_match: '認識結果と歌詞の一致が部分的です。',
-  partial_boundary_match: '認識結果で行の端を確認できませんでした。',
-  short_line: '短い歌詞行のため対応を確認してください。',
-  segment_boundary_estimate: '認識区間から時刻を推定しました。',
-  reading_and_surface_disagree: '読みと表記から得た時刻に差があります。',
-  insufficient_text_match: '認識結果との一致が不足しています。',
-  implausible_span: '一致した語の時刻が大きく離れています。',
-  long_internal_gap: '行内に長い空白があります。',
-  invalid_or_overlapping_time: '時刻の順序または重複を解消できませんでした。',
-  experimental_recovery_requires_review: '複数の認識とボーカル音量を基に補完しました。',
-  experimental_boundary_requires_review: '複数の認識から境界を調整しました。',
-  vocal_tail_before_pause: '分離ボーカルが静かになる位置まで終了を延ばしました。',
-  trailing_vocal_silence: '分離ボーカルの末尾の無音を除きました。',
-  uncertain_trailing_vocal_silence: '末尾に静かな区間があります。時刻を確認してください。',
-};
 
 function busy(job?: Job) {
   return job && ['queued', 'uploading', 'running', 'cancelling'].includes(job.state);
@@ -55,19 +29,14 @@ async function request<T>(route: string, options?: RequestInit): Promise<T> {
   return reply.json();
 }
 
-function timestamp(ms: number) {
-  const minutes = Math.floor(ms / 60000);
-  const seconds = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
-  return minutes + ':' + seconds + '.' + String(ms % 1000).padStart(3, '0');
-}
-
-export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied, onApply, onSeek }: {
+export function SyncPanel({ controls, media, lyrics, revision, hasLines, appliedJob, hasEditedCues, onApply, onSeek }: {
   controls: HTMLDivElement | null;
   media?: File;
   lyrics: string;
   revision: number;
   hasLines: boolean;
-  applied?: { id: string; cues: Cue[] };
+  appliedJob?: string;
+  hasEditedCues: boolean;
   onApply: (id: string, cues: Cue[]) => void;
   onSeek: (seconds: number) => void;
 }) {
@@ -158,8 +127,8 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
 
   const stale = startedRevision !== revision;
   const preparing = starting && !activeId;
-  const appliedHere = applied && applied.id === job?.id;
-  const cues = preparing ? undefined : appliedHere ? applied.cues : job?.cues;
+  const appliedHere = Boolean(appliedJob && appliedJob === job?.id);
+  const cues = preparing ? undefined : job?.cues;
   const inputHint = config?.available
     ? (!media || !hasLines) && '素材と歌詞を読み込むと開始できます'
     : config && '同期を有効にするには、起動時にローカルモデルを指定してください。';
@@ -189,22 +158,22 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
       <div className="candidate-summary">
         <h4>同期候補</h4>
         <p>{cues.filter(cue => cue.status === 'candidate').length} 候補 ／ {cues.filter(cue => cue.status === 'review').length} 要確認 ／ {cues.filter(cue => cue.status === 'unplaced').length} 未配置</p>
-        {stale ? <p role="status">同期開始後に素材または歌詞が変わりました。現在の入力で再実行してください。</p> :
-          <button type="button" disabled={appliedHere || !cues.some(cue => cue.start_ms !== null)}
-            onClick={() => onApply(job.id, cues)}>{appliedHere ? 'プレビューに適用済み' : '候補をプレビューに適用'}</button>}
+        {appliedHere ? <p>適用済み · <a href="#subtitle-editor-title">字幕編集を開く</a></p> : stale ? <p role="status">同期開始後に素材または歌詞が変わりました。現在の入力で再実行してください。</p> :
+          <button type="button" disabled={!cues.length}
+            onClick={() => onApply(job.id, cues)}>{hasEditedCues ? '同期候補で字幕を置き換える' : '候補をプレビューに適用'}</button>}
       </div>
-      <ol className="lines candidates" aria-label="同期候補">
+      {!appliedHere && <ol className="lines candidates" aria-label="同期候補">
         {cues.map(cue => <li key={cue.id}><div>
           <p>{cue.text}</p>
           <div className="cue-info">
-            <span className={'cue-status ' + cue.status}>{status[cue.status]}</span>
+            <span className={'cue-status ' + cue.status}>{cueStatus[cue.status]}</span>
             {cue.start_ms !== null && cue.end_ms !== null && <button type="button" disabled={stale} onClick={() => onSeek(cue.start_ms! / 1000)}>
               {timestamp(cue.start_ms)} – {timestamp(cue.end_ms)}
             </button>}
           </div>
-          {cue.reasons.length > 0 && <ul>{cue.reasons.map(reason => <li key={reason}>{reasons[reason] ?? reason}</li>)}</ul>}
+          {cue.reasons.length > 0 && <ul>{cue.reasons.map(reason => <li key={reason}>{cueReasons[reason] ?? reason}</li>)}</ul>}
         </div></li>)}
-      </ol>
+      </ol>}
     </>}
   </section>;
 }
