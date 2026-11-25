@@ -43,7 +43,7 @@ def build_track(media, sync, audit):
             placed.append(cue)
         summary.append({
             "id": identifier, "text": cue["text"], "start_ms": start, "end_ms": end, "status": status,
-            "reasons": check["reasons"],
+            "reasons": check["reasons"], "generation_status": cue["status"],
             "generation_reasons": cue["reasons"],
             "second_start_ms": check["second_model_start_ms"], "second_end_ms": check["second_model_end_ms"],
             "second_text_coverage": check["second_model_match_coverage"],
