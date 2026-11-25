@@ -61,6 +61,7 @@ class Job:
     stage: str = "素材の転送待ち"
     error: str | None = None
     cues: list | None = None
+    cache_hit: bool = False
     directory: TemporaryDirectory | None = None
     task: asyncio.Task | None = None
     expiry: asyncio.TimerHandle | None = None
@@ -76,7 +77,7 @@ class Job:
             for phase in stages:
                 self.stage = STAGES.get(phase, self.stage)
         return {"id": self.id, "state": self.state, "stage": self.stage,
-                "error": self.error, "cues": self.cues}
+                "error": self.error, "cues": self.cues, "cache_hit": self.cache_hit}
 
 
 def stop_worker_tree(process):
@@ -120,8 +121,9 @@ async def run_worker(command, log_path, cancellation, *, cwd=None):
         cancelled.cancel()
 
 class SyncJobs:
-    def __init__(self, options):
+    def __init__(self, options, cache=None):
         self.options = options
+        self.cache = cache
         self.jobs = {}
 
     def register(self, kind, lyrics):
@@ -162,6 +164,20 @@ class SyncJobs:
 
     async def run(self, job, media, input_format):
         directory = media.parent
+        cache_key = None
+        if self.cache:
+            try:
+                cache_key = await asyncio.to_thread(self.cache.key, self.options, media, input_format, job.lyrics)
+            except (OSError, ValueError, ImportError):
+                LOG.debug("Synchronization cache key unavailable", exc_info=True)
+            if job.cancellation.is_set():
+                self.finish(job, "cancelled")
+                return
+            cached = self.cache.load(cache_key)
+            if cached is not None:
+                job.cues, job.cache_hit = cached, True
+                self.finish(job, "succeeded")
+                return
         try:
             code = await run_worker(self.options.command(directory, media, input_format),
                                     directory / "worker.log", job.cancellation)
@@ -173,6 +189,11 @@ class SyncJobs:
             else:
                 result = json.loads((directory / "result" / "sync.json").read_text(encoding="utf-8"))
                 job.cues = result["lines"]
+                if self.cache and not job.cancellation.is_set():
+                    try:
+                        self.cache.save(cache_key, job.cues)
+                    except OSError:
+                        LOG.warning("Could not save synchronization cache", exc_info=True)
                 state, error = "succeeded", None
         except (OSError, ValueError, KeyError, RuntimeError):
             LOG.exception("Synchronization worker failed")

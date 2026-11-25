@@ -4,6 +4,7 @@ import argparse
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -22,6 +23,9 @@ from .fonts import japanese_fonts
 from .jobs import SyncJobs, SyncOptions
 from .local_io import MAX_LYRIC_BYTES, copy_media, limited_chunks, require_local_request
 from .media import MEDIA_FORMATS, extract_waveform
+from .projects import ProjectStore
+from .project_routes import project_routes
+from .sync_cache import SyncCache, sha256_file
 from .subtitle_schema import SubtitleRequest
 from .video_export import VideoJobs
 from .video_routes import video_routes
@@ -73,8 +77,10 @@ def decode_lyrics(data, encoding):
     return text
 
 
-def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
-    jobs = SyncJobs(sync_options)
+def create_app(dist, ffprobe, sync_options=None, ffmpeg=None, data_dir=None):
+    data_dir = data_dir or Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "share")) / "LyricStudio"
+    jobs = SyncJobs(sync_options, SyncCache(data_dir / "sync-cache"))
+    projects = ProjectStore(data_dir / "projects")
     video = VideoJobs(ffmpeg, ffprobe)
 
     @asynccontextmanager
@@ -87,6 +93,7 @@ def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     app.include_router(video_routes(video))
+    app.include_router(project_routes(projects))
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/")
@@ -108,7 +115,8 @@ def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
                     waveform = await run_in_threadpool(extract_waveform, ffmpeg, path, MEDIA_FORMATS[kind])
                 except (subprocess.SubprocessError, OSError, ValueError):
                     pass
-        return {"valid": True, "waveform": waveform}
+            digest = await run_in_threadpool(sha256_file, path)
+        return {"valid": True, "waveform": waveform, "sha256": digest}
 
     @app.post("/api/preview/lyrics/{source}")
     async def lyrics(source: str, request: Request):
@@ -242,6 +250,7 @@ def main():
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--turbo-model", type=Path)
     parser.add_argument("--demucs-python", type=Path)
+    parser.add_argument("--data-dir", type=Path, help="local project and sync-cache storage")
     parser.add_argument("--port", type=int, default=8769)
     args = parser.parse_args()
     if not (args.dist / "index.html").is_file() or not (args.dist / "assets").is_dir():
@@ -266,7 +275,7 @@ def main():
         options = SyncOptions(ffmpeg, args.small_model.resolve(), args.device,
                               args.turbo_model and args.turbo_model.resolve(),
                               args.demucs_python and args.demucs_python.resolve())
-    uvicorn.run(create_app(args.dist.resolve(), args.ffprobe.resolve(), options, ffmpeg),
+    uvicorn.run(create_app(args.dist.resolve(), args.ffprobe.resolve(), options, ffmpeg, args.data_dir),
                 host="127.0.0.1", port=args.port, proxy_headers=False)
 
 

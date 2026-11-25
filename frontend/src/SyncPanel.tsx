@@ -8,6 +8,7 @@ type Job = {
   stage: string;
   error: string | null;
   cues: Cue[] | null;
+  cache_hit?: boolean;
 };
 
 type Config = { available: boolean; profile?: 'baseline' | 'refined'; device?: 'cpu' | 'cuda' };
@@ -138,7 +139,7 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
       {(job || preparing || inputHint || error) && <div className="sync-header-status">
         {(job || preparing) && <div className="job-state" role="status">
           {(activeId || preparing) && <progress aria-label="同期の進捗" />}
-          <span>{pollError ? '同期の状態を再取得しています。' : preparing ? '同期を準備中' : job?.stage}</span>
+          <span>{pollError ? '同期の状態を再取得しています。' : preparing ? '同期を準備中' : job?.cache_hit ? '完了 · 保存済み解析を使用' : job?.stage}</span>
         </div>}
         {inputHint && !activeId && <p id="sync-input-hint">{inputHint}</p>}
         {error && <p className="sync-header-error" role="alert">{error}</p>}
