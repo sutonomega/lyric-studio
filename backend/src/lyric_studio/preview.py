@@ -18,6 +18,7 @@ from starlette.staticfiles import StaticFiles
 import uvicorn
 
 from .jobs import SyncJobs, SyncOptions
+from .media import extract_waveform
 from .sync.align import lyric_lines
 
 
@@ -92,7 +93,7 @@ async def copy_media(request, target, cancellation=None):
             await run_in_threadpool(output.write, chunk)
 
 
-def create_app(dist, ffprobe, sync_options=None):
+def create_app(dist, ffprobe, sync_options=None, ffmpeg=None):
     jobs = SyncJobs(sync_options)
 
     @asynccontextmanager
@@ -119,7 +120,13 @@ def create_app(dist, ffprobe, sync_options=None):
             path = Path(directory) / f"source.{kind}"
             await copy_media(request, path)
             await run_in_threadpool(inspect_media, ffprobe, path, kind)
-        return {"valid": True}
+            waveform = None
+            if ffmpeg:
+                try:
+                    waveform = await run_in_threadpool(extract_waveform, ffmpeg, path, MEDIA_FORMATS[kind])
+                except (subprocess.SubprocessError, OSError, ValueError):
+                    pass
+        return {"valid": True, "waveform": waveform}
 
     @app.post("/api/preview/lyrics/{source}")
     async def lyrics(source: str, request: Request):
@@ -238,6 +245,10 @@ def main():
         parser.error("ffprobe is required (add it to PATH or pass --ffprobe)")
     if bool(args.turbo_model) != bool(args.demucs_python) or (args.turbo_model and not args.small_model):
         parser.error("refinement requires --small-model, --turbo-model and --demucs-python")
+    ffmpeg = args.ffmpeg or args.ffprobe.with_name("ffmpeg" + args.ffprobe.suffix)
+    ffmpeg = ffmpeg.resolve() if ffmpeg.is_file() else None
+    if args.ffmpeg and not ffmpeg:
+        parser.error("--ffmpeg must point to the FFmpeg executable")
     options = None
     if args.small_model:
         models = [model for model in (args.small_model, args.turbo_model) if model]
@@ -245,13 +256,12 @@ def main():
             parser.error("model.bin was not found in a specified model directory")
         if args.demucs_python and not args.demucs_python.is_file():
             parser.error("--demucs-python must point to a separation environment")
-        ffmpeg = args.ffmpeg or args.ffprobe.with_name("ffmpeg" + args.ffprobe.suffix)
-        if not ffmpeg.is_file():
+        if not ffmpeg:
             parser.error("ffmpeg is required for synchronization (pass --ffmpeg)")
-        options = SyncOptions(ffmpeg.resolve(), args.small_model.resolve(), args.device,
+        options = SyncOptions(ffmpeg, args.small_model.resolve(), args.device,
                               args.turbo_model and args.turbo_model.resolve(),
                               args.demucs_python and args.demucs_python.resolve())
-    uvicorn.run(create_app(args.dist.resolve(), args.ffprobe.resolve(), options),
+    uvicorn.run(create_app(args.dist.resolve(), args.ffprobe.resolve(), options, ffmpeg),
                 host="127.0.0.1", port=args.port, proxy_headers=False)
 
 
