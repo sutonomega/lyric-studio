@@ -60,29 +60,32 @@ def literal_ass_line(text):
     return text.replace("\\", "\\\u200b").replace("{", r"\{").replace("}", r"\}")
 
 
-def render_ass(placed, style, duration):
+def render_ass(placed, style, duration, width=PLAY_WIDTH, height=PLAY_HEIGHT):
+    scale = width / PLAY_WIDTH
+    size = int(style.size * scale + 0.5)
+    outline_size, shadow_size = style.outline * scale, style.shadow * scale
     primary = ass_color(style.color, style.opacity)
     outline = ass_color(style.outline_color, style.opacity)
     shadow = ass_color("#000000", style.opacity)
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {PLAY_WIDTH}
-PlayResY: {PLAY_HEIGHT}
+PlayResX: {width}
+PlayResY: {height}
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Lyrics,{style.font},{style.size},{primary},{primary},{outline},{shadow},0,0,0,0,100,100,{style.letter_spacing},0,1,{style.outline},{style.shadow},{style.anchor},0,0,0,1
+Style: Lyrics,{style.font},{size},{primary},{primary},{outline},{shadow},0,0,0,0,100,100,{style.letter_spacing * scale:g},0,1,{outline_size:g},{shadow_size:g},{style.anchor},0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     horizontal = (style.anchor - 1) % 3
     vertical = (style.anchor - 1) // 3
-    x = (144, 960, 1776)[horizontal]
-    y = (999, 540, 81)[vertical]
-    step = style.size + style.line_spacing
+    x = width * (0.075, 0.5, 0.925)[horizontal]
+    y = height * (0.925, 0.5, 0.075)[vertical]
+    step = size + style.line_spacing * scale
     entries = [header]
     for index, cue in enumerate(placed, 1):
         start, end = (min(duration // 10, (cue[key] + 5) // 10) for key in ("start_ms", "end_ms"))
@@ -96,14 +99,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not line:
                 continue
             offset = line_index - (len(lines) - 1) * (1, 0.5, 0)[vertical]
-            tags = rf"{{\an{style.anchor}\pos({x},{y + step * offset:g})\fad({fade_in},{fade_out})}}"
+            tags = rf"{{\an{style.anchor}\pos({x:g},{y + step * offset:g})\fad({fade_in},{fade_out})}}"
             entries.append(
                 f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Lyrics,,0,0,0,,{tags}{literal_ass_line(line)}\n"
             )
     return "".join(entries)
 
 
-def export_subtitles(kind: Literal["srt", "ass"], request, installed_fonts):
+def export_subtitles(kind: Literal["srt", "ass"], request, installed_fonts, *, width=PLAY_WIDTH, height=PLAY_HEIGHT):
     placed = exportable_cues(request)
     if kind == "srt":
         for cue in placed:
@@ -113,4 +116,4 @@ def export_subtitles(kind: Literal["srt", "ass"], request, installed_fonts):
     style = request.style
     if not style or style.font not in installed_fonts or re.search(r"[,\x00-\x1f]", style.font):
         raise ValueError("インストール済みのフォントを選んでください。")
-    return render_ass(placed, style, request.duration_ms)
+    return render_ass(placed, style, request.duration_ms, width, height)

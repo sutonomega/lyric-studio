@@ -39,3 +39,11 @@ class SubtitleExportTests(unittest.TestCase):
             export_subtitles("ass", short, ("Noto Sans JP",))
         with self.assertRaisesRegex(ValueError, "インストール済み"):
             export_subtitles("ass", short, ())
+
+    def test_portrait_uses_output_dimensions_and_scales_type_to_width(self):
+        payload = request([cue("一行目\n二行目", 1000, 3000)])
+        ass = export_subtitles("ass", payload, ("Noto Sans JP",), width=1080, height=1920)
+        self.assertIn("PlayResX: 1080\nPlayResY: 1920", ass)
+        self.assertIn("Style: Lyrics,Noto Sans JP,41,", ass)
+        self.assertIn(r"\pos(540,1724.88)", ass)
+        self.assertIn(r"\pos(540,1776)", ass)

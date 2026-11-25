@@ -6,11 +6,19 @@ import wave
 import numpy as np
 
 
+MEDIA_FORMATS = {"mp4": "mov", "mp3": "mp3", "wav": "wav"}
+
+
+def local_input_options(input_format):
+    options = ["-protocol_whitelist", "file", "-f", input_format]
+    if input_format == "mov":
+        options.extend(("-enable_drefs", "0"))
+    return options
+
+
 def decode(ffmpeg, incoming, outgoing, rate, channels, codec, input_format=None, *, timeout=None):
     # Preserve an audio stream's offset from the beginning of the media timeline.
-    source_options = [] if input_format is None else ["-protocol_whitelist", "file", "-f", input_format]
-    if input_format == "mov":
-        source_options.extend(("-enable_drefs", "0"))
+    source_options = [] if input_format is None else local_input_options(input_format)
     subprocess.run([
         ffmpeg, "-v", "error", "-nostdin", "-copyts", "-start_at_zero",
         *source_options, "-i", str(incoming), "-map", "0:a:0", "-vn", "-ac", str(channels),
