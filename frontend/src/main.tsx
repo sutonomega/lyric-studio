@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { SyncPanel, type Cue } from './SyncPanel';
+import { SyncPanel } from './SyncPanel';
+import { SubtitleEditor } from './SubtitleEditor';
+import { commit, editCues, emptyHistory, isTimed, redo, undo, type Cue, type Edit } from './subtitles';
 import { Timeline, type WaveformData } from './Timeline';
 import './studio.css';
 
@@ -122,13 +124,14 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [revision, setRevision] = useState(0);
   const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
-  const [applied, setApplied] = useState<{ id: string; revision: number; cues: Cue[] }>();
-  const applicable = applied?.revision === revision ? applied : undefined;
-  const subtitle = applicable?.cues.find(cue => cue.start_ms !== null && cue.end_ms !== null &&
-    cue.start_ms <= position * 1000 && position * 1000 < cue.end_ms);
-  function markEdited() {
+  const [history, setHistory] = useState(emptyHistory);
+  const [selection, setSelection] = useState<string>();
+  const [editError, setEditError] = useState<{ operation: Edit['type']; message: string }>();
+  const track = history.current;
+  const selected = track.cues.find(cue => cue.id === selection)?.id ?? track.cues[0]?.id;
+  const subtitle = track.cues.find(cue => isTimed(cue) && cue.start_ms <= position * 1000 && position * 1000 < cue.end_ms);
+  function markSourceChanged() {
     setRevision(previous => previous + 1);
-    setApplied(undefined);
   }
   const player = useRef<HTMLMediaElement | null>(null);
   const mediaRequest = useRef<AbortController | null>(null);
@@ -167,7 +170,10 @@ function App() {
       setPosition(0);
       setDuration(0);
       setMaterial({ file, video, url, waveform: result.waveform });
-      markEdited();
+      markSourceChanged();
+      setHistory(emptyHistory());
+      setSelection(undefined);
+      setEditError(undefined);
       setMediaNotice(undefined);
       accepted = true;
     } catch (error) {
@@ -200,7 +206,7 @@ function App() {
       request.signal.throwIfAborted();
       if (source === 'txt') {
         setText(result.text);
-        markEdited();
+        markSourceChanged();
       }
       setLines(result.lines);
       setLyricNotice(result.lines.length ? undefined : { text: '字幕にする歌詞がありません。' });
@@ -219,7 +225,7 @@ function App() {
   function enterLyrics(value: string) {
     const request = startLyricsRequest();
     setText(value);
-    markEdited();
+    markSourceChanged();
     setLines([]);
     setLyricNotice(undefined);
     if (value.trim()) typingTimer.current = window.setTimeout(() => void loadLyrics('text', value, request), 180);
@@ -247,6 +253,29 @@ function App() {
     setPosition(value);
   }
 
+  function selectCue(cue: Cue) {
+    setSelection(cue.id);
+    setEditError(undefined);
+    if (isTimed(cue)) seek(cue.start_ms / 1000);
+  }
+
+  function editSubtitle(edit: Edit) {
+    setEditError(undefined);
+    try {
+      const result = editCues(track.cues, edit, Math.round(duration * 1000));
+      if (result.cues === track.cues) return;
+      setHistory(commit(history, { ...track, cues: result.cues }));
+      if (result.selection !== undefined) setSelection(result.selection);
+    } catch (error) {
+      setEditError({ operation: edit.type, message: error instanceof Error ? error.message : '字幕を編集できませんでした。' });
+    }
+  }
+
+  function navigateHistory(forward: boolean) {
+    setEditError(undefined);
+    setHistory(forward ? redo : undo);
+  }
+
   const mediaProps = {
     ref: (node: HTMLMediaElement | null) => { player.current = node; },
     src: material?.url,
@@ -264,7 +293,13 @@ function App() {
       <div className="brand"><span className="brand-icon" aria-hidden="true"><i /><i /><i /></span>Lyric Studio</div>
       <div className="topbar-sync" ref={setSyncControls} />
     </header>
-    <main>
+    <main onKeyDown={event => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || (event.target as HTMLElement).closest('input, textarea, [contenteditable]')) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      event.preventDefault();
+      navigateHistory(key === 'y' || event.shiftKey);
+    }}>
       <div className="preview-column">
         <section className="workspace" aria-labelledby="preview-title">
           <div className="section-head">
@@ -286,7 +321,7 @@ function App() {
                   <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
                 </div>}
             </>}
-            {subtitle && <p className="subtitle-overlay">{subtitle.text}</p>}
+            {subtitle?.text && <p className="subtitle-overlay">{subtitle.text}</p>}
           </div>
           <div className="transport">
             <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
@@ -306,7 +341,7 @@ function App() {
       </div>
       <section className="lyric-panel" aria-labelledby="lyrics-title">
         <div className="section-head">
-          <h2 id="lyrics-title">歌詞</h2>
+          <h2 id="lyrics-title">同期用の歌詞</h2>
           <FileChoice id="lyrics-file" label="TXTを読み込む" accept=".txt" select={importLyrics} />
         </div>
         <label className="editor-label" htmlFor="lyrics">歌詞テキスト</label>
@@ -318,18 +353,18 @@ function App() {
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
         <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
-          applied={applicable} onApply={(id, cues) => {
-            setApplied({ id, revision, cues });
-            const start = cues.find(cue => cue.start_ms !== null)?.start_ms;
-            if (start != null) seek(start / 1000);
+          appliedJob={track.sourceJob} hasEditedCues={track.cues.length > 0} onApply={(id, cues) => {
+            setHistory(commit(history, { sourceJob: id, cues }));
+            const first = cues.find(isTimed) ?? cues[0];
+            if (first) selectCue(first);
           }} onSeek={seek} />
+        <SubtitleEditor cues={track.cues} selected={selected} duration={duration} position={position} error={editError}
+          canUndo={history.past.length > 0} canRedo={history.future.length > 0}
+          onSelect={selectCue} onEdit={editSubtitle} onUndo={() => navigateHistory(false)} onRedo={() => navigateHistory(true)} />
       </section>
       <Timeline key={material?.url} duration={duration} position={position} waveform={material?.waveform}
-        cues={applicable?.cues ?? []} onSeek={seek} onEdit={(id, edge, ms) =>
-          setApplied(previous => previous?.revision === revision ? {
-            ...previous, cues: previous.cues.map(cue => cue.id === id ? { ...cue, [edge]: ms } : cue),
-          } : previous)
-        } />
+        cues={track.cues} selected={selected} onSelect={selectCue} onSeek={seek}
+        onEdit={(id, edge, time) => editSubtitle({ type: 'edge', id, edge, time })} />
     </main>
   </>;
 }
