@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { SyncPanel, type Cue } from './SyncPanel';
 import './studio.css';
 
 type Notice = { text: string; error?: boolean };
-type Material = { name: string; url: string; video: boolean };
+type Material = { file: File; url: string; video: boolean };
 type Artwork = { name: string; url: string };
 type CapturableVideo = HTMLVideoElement & { captureStream?: () => MediaStream };
 type Lyrics = { text: string; lines: [number, string][] };
@@ -118,6 +119,16 @@ function App() {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [syncControls, setSyncControls] = useState<HTMLDivElement | null>(null);
+  const [applied, setApplied] = useState<{ id: string; revision: number; cues: Cue[] }>();
+  const applicable = applied?.revision === revision ? applied : undefined;
+  const subtitle = applicable?.cues.find(cue => cue.start_ms !== null && cue.end_ms !== null &&
+    cue.start_ms <= position * 1000 && position * 1000 < cue.end_ms);
+  function markEdited() {
+    setRevision(previous => previous + 1);
+    setApplied(undefined);
+  }
   const player = useRef<HTMLMediaElement | null>(null);
   const mediaRequest = useRef<AbortController | null>(null);
   const imageRequest = useRef<AbortController | null>(null);
@@ -154,7 +165,8 @@ function App() {
       setPlaying(false);
       setPosition(0);
       setDuration(0);
-      setMaterial({ name: file.name, video, url });
+      setMaterial({ file, video, url });
+      markEdited();
       setMediaNotice(undefined);
       accepted = true;
     } catch (error) {
@@ -185,7 +197,10 @@ function App() {
     try {
       const result = await post<Lyrics>('lyrics/' + source, value, request.signal);
       request.signal.throwIfAborted();
-      if (source === 'txt') setText(result.text);
+      if (source === 'txt') {
+        setText(result.text);
+        markEdited();
+      }
       setLines(result.lines);
       setLyricNotice(result.lines.length ? undefined : { text: '字幕にする歌詞がありません。' });
     } catch (error) {
@@ -203,6 +218,7 @@ function App() {
   function enterLyrics(value: string) {
     const request = startLyricsRequest();
     setText(value);
+    markEdited();
     setLines([]);
     setLyricNotice(undefined);
     if (value.trim()) typingTimer.current = window.setTimeout(() => void loadLyrics('text', value, request), 180);
@@ -245,13 +261,14 @@ function App() {
   return <>
     <header className="topbar">
       <div className="brand"><span className="brand-icon" aria-hidden="true"><i /><i /><i /></span>Lyric Studio</div>
+      <div className="topbar-sync" ref={setSyncControls} />
     </header>
     <main>
       <section className="workspace" aria-labelledby="preview-title">
         <div className="section-head">
           <div>
             <h1 id="preview-title">プレビュー</h1>
-            <p className="filename">{material?.name ?? '素材を選択してください'}</p>
+            <p className="filename">{material?.file.name ?? '素材を選択してください'}</p>
           </div>
           <FileChoice id="media-file" label="動画・音声を選ぶ" accept=".mp4,.mp3,.wav" select={chooseMedia} />
         </div>
@@ -267,6 +284,7 @@ function App() {
                 <p>{material ? '背景画像を選択してください' : 'MP4 または MP3・WAV'}</p>
               </div>}
           </>}
+          {subtitle && <p className="subtitle-overlay">{subtitle.text}</p>}
         </div>
         <div className="transport">
           <button className="primary" type="button" onClick={togglePlayback} disabled={!seekable}>{playing ? '一時停止' : '再生'}</button>
@@ -295,6 +313,12 @@ function App() {
         {lines.length ? <ol className="lines" aria-label="字幕対象の行">
           {lines.map(([number, lyric]) => <li key={number}><p>{lyric}</p></li>)}
         </ol> : <p className="list-empty">歌詞を入力すると、字幕に使う行が表示されます。</p>}
+        <SyncPanel controls={syncControls} media={material?.file} lyrics={text} revision={revision} hasLines={lines.length > 0}
+          applied={applicable?.id} onApply={(id, cues) => {
+            setApplied({ id, revision, cues });
+            const start = cues.find(cue => cue.start_ms !== null)?.start_ms;
+            if (start != null) seek(start / 1000);
+          }} onSeek={seek} />
       </section>
     </main>
   </>;
