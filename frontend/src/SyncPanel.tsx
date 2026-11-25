@@ -40,17 +40,21 @@ async function request<T>(route: string, options?: RequestInit): Promise<T> {
   return reply.json();
 }
 
-export function SyncPanel({ controls, media, lyrics, revision, hasLines, appliedJob, editedCues, onApply, onSeek, onOpenCue }: {
+export function SyncPanel({ controls, reviewControls, media, lyrics, revision, hasLines, appliedJob, editedCues, selected,
+  onApply, onSeek, onOpenCue, onSelectCue }: {
   controls: HTMLDivElement | null;
+  reviewControls: HTMLFieldSetElement | null;
   media?: File;
   lyrics: string;
   revision: number;
   hasLines: boolean;
   appliedJob?: string;
   editedCues: Cue[];
+  selected?: string;
   onApply: (id: string, cues: Cue[]) => void;
   onSeek: (seconds: number) => void;
   onOpenCue: (cue: Cue) => void;
+  onSelectCue: (cue: Cue) => void;
 }) {
   const [config, setConfig] = useState<Config>();
   const [auditEnabled, setAuditEnabled] = useState(true);
@@ -151,7 +155,11 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
   const additional = auditReviews.filter(cue => cue.status === 'candidate');
   const auditAvailable = cues?.some(cue => cue.audit);
   const visibleCues = additionalOnly ? additional : appliedHere ? [] : cues;
-  const editableCues = appliedHere && additionalOnly && !stale ? new Map(editedCues.map(cue => [cue.id, cue])) : undefined;
+  const editableCues = appliedHere && !stale && additional.length ? new Map(editedCues.map(cue => [cue.id, cue])) : undefined;
+  const reviewable = additional.map(cue => editableCues?.get(cue.id)).filter(cue => cue !== undefined);
+  const reviewIndex = reviewable.findIndex(cue => cue.id === selected);
+  const previous = reviewable[reviewIndex - 1];
+  const next = reviewable[reviewIndex + 1];
   const inputHint = config?.available
     ? (!media || !hasLines) && '素材と歌詞を読み込むと開始できます'
     : config && '同期を有効にするには、起動時にローカルモデルを指定してください。';
@@ -177,6 +185,11 @@ export function SyncPanel({ controls, media, lyrics, revision, hasLines, applied
             aria-describedby={inputHint ? 'sync-input-hint' : undefined}
             onClick={() => void start()}>{job ? '再実行' : '同期を開始'}</button>}
     </>, controls)}
+    {reviewControls && reviewIndex >= 0 && reviewable.length > 1 && createPortal(<>
+      <span role="status">追加確認 {reviewIndex + 1} / {reviewable.length}</span>
+      <button type="button" disabled={!previous} onClick={() => previous && onSelectCue(previous)}>前の追加確認</button>
+      <button type="button" disabled={!next} onClick={() => next && onSelectCue(next)}>次の追加確認</button>
+    </>, reviewControls)}
     <div className="list-head sync-heading">
       <div><h3 id="sync-title">自動同期</h3>
         {config?.available && <p className="filename">{config.profile === 'refined' ? 'ボーカル分離と補正あり' : '原音を使う同期'} · {config.device?.toUpperCase()}</p>}
